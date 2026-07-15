@@ -19,12 +19,12 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is missing. Add it to .env before running enrichment.");
+    throw new Error("OPENAI_API_KEY is missing. Add it to .env before fetching missing company data.");
   }
 
   const rows = await readRows(options.outputPath);
   if (rows.length === 0) {
-    console.log(`No rows found at ${options.outputPath}.`);
+    console.log(`No CSV entries found at ${options.outputPath}.`);
     return;
   }
 
@@ -35,24 +35,24 @@ async function main(): Promise<void> {
 
   if (targets.length === 0) {
     console.log(
-      "No remaining rows with missing employer details need enrichment.",
+      "No entries with missing company data found.",
     );
     return;
   }
 
   console.log(
-    `Enriching ${targets.length} row(s) with concurrency ${options.concurrency}.`,
+    `Fetching missing company data for ${targets.length} entr${targets.length === 1 ? "y" : "ies"} with concurrency ${options.concurrency}.`,
   );
 
   const updatedRows = [...rows];
   await runWithConcurrency(targets, options.concurrency, async ({ row, index }) => {
-    console.log(`Enriching: ${row.company || "(missing company)"} ${row.job_title ? `- ${row.job_title}` : ""}`);
+    console.log(`Fetching company data: ${row.company || "(missing company)"} ${row.job_title ? `- ${row.job_title}` : ""}`);
     const enrichment = await enrichEmployerRow(row, apiKey);
     updatedRows[index] = applyEnrichment(row, enrichment);
   });
 
   if (options.dryRun) {
-    console.log("Dry run: enriched CSV preview follows; no file was written.");
+    console.log("Dry run: CSV with missing company data follows; no file was written.");
     process.stdout.write(stringifyCsv(updatedRows));
     return;
   }
@@ -62,7 +62,9 @@ async function main(): Promise<void> {
     path.resolve(__dirname, "..", "backups"),
     updatedRows,
   );
-  console.log(`Updated ${targets.length} row(s) in ${options.outputPath}.`);
+  console.log(
+    `Updated ${targets.length} entr${targets.length === 1 ? "y" : "ies"} in ${options.outputPath}.`,
+  );
 }
 
 function shouldEnrich(row: WorkSearchRow): boolean {
@@ -184,9 +186,9 @@ function printHelpAndExit(): never {
   console.log(`Usage: pnpm enrich -- [options]
 
 Options:
-  --dry-run              Print enriched CSV without writing the output file.
-  --limit <n>            Enrich only the first n matching rows.
-  --concurrency <n>      Parallel enrichment requests. Defaults to 2.
+  --dry-run              Print CSV with missing company data without writing the output file.
+  --limit <n>            Fetch company data for only the first n matching entries.
+  --concurrency <n>      Parallel company data lookups. Defaults to 2.
   --output <path>        CSV output path. Defaults to ${DEFAULT_OUTPUT_PATH}.
   --help                 Show this help.
 `);

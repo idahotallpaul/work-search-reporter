@@ -3,14 +3,10 @@ import path from "node:path";
 
 import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
 
-type PromptResult = string | boolean | symbol;
+type PromptResult = string | symbol;
 
 type Prompts = {
   cancel: (message?: string) => void;
-  confirm: (options: {
-    message: string;
-    initialValue?: boolean;
-  }) => Promise<boolean | symbol>;
   intro: (message?: string) => void;
   isCancel: (value: PromptResult) => value is symbol;
   note: (message: string, title?: string) => void;
@@ -45,31 +41,16 @@ const actions: MenuAction[] = [
     usesWeek: true,
   },
   {
-    id: "preview",
-    label: "Preview collection",
-    description: "Run extraction and print CSV rows without writing anything.",
-    command: "src/cli.ts",
-    args: ["--dry-run"],
-    usesWeek: true,
-  },
-  {
     id: "collect",
-    label: "Collect draft rows",
-    description: "Append new confirmation rows to the CSV.",
+    label: "Fetch application confirmation emails",
+    description: "Find confirmation emails and add them to the CSV.",
     command: "src/cli.ts",
     usesWeek: true,
-  },
-  {
-    id: "preview-enrichment",
-    label: "Preview enrichment",
-    description: "Look up employer details and print a CSV preview without writing.",
-    command: "src/enrichCli.ts",
-    args: ["--dry-run"],
   },
   {
     id: "enrich",
-    label: "Enrich remaining rows",
-    description: "Fill missing employer details for rows still in the CSV.",
+    label: "Fetch missing company data",
+    description: "Fill missing website, contact, and address fields in the CSV.",
     command: "src/enrichCli.ts",
   },
   {
@@ -88,7 +69,7 @@ const actions: MenuAction[] = [
 
 async function main(): Promise<void> {
   const prompts = await loadPrompts();
-  const { confirm, intro, isCancel, outro } = prompts;
+  const { intro, outro } = prompts;
 
   intro("Work Search Reporter");
   let weekStart: string | undefined;
@@ -118,15 +99,6 @@ async function main(): Promise<void> {
     console.log("");
     await runTsNode(action.command, args);
     console.log("");
-
-    const again = await confirm({
-      message: "Back to menu?",
-      initialValue: true,
-    });
-    if (isCancel(again) || !again) {
-      outro("Done.");
-      return;
-    }
   }
 }
 

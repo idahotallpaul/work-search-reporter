@@ -43,7 +43,7 @@ export async function enrichEmployer(
     );
   } catch (error) {
     return emptyEnrichment(
-      `OpenAI web enrichment failed. ${(error as Error).message}`,
+      `OpenAI company data lookup failed. ${(error as Error).message}`,
     );
   }
 }

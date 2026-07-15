@@ -70,13 +70,15 @@ async function main(): Promise<void> {
   const newRows = filterNewRows(existingRows, rows);
 
   if (options.dryRun) {
-    console.log(`Dry run: ${newRows.length} new row(s) would be appended.`);
+    console.log(
+      `Dry run: ${newRows.length} application confirmation(s) would be added.`,
+    );
     process.stdout.write(stringifyCsv(newRows));
     return;
   }
 
   if (newRows.length === 0) {
-    console.log("No new rows to append.");
+    console.log("No new application confirmation emails found.");
     return;
   }
 
@@ -85,7 +87,9 @@ async function main(): Promise<void> {
     path.resolve(__dirname, "..", "backups"),
     newRows,
   );
-  console.log(`Appended ${newRows.length} row(s) to ${options.outputPath}.`);
+  console.log(
+    `Added ${newRows.length} application confirmation(s) to ${options.outputPath}.`,
+  );
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -149,7 +153,7 @@ function printHelpAndExit(): never {
   console.log(`Usage: pnpm collect -- [options]
 
 Options:
-  --dry-run              Print new CSV rows without writing the output file.
+  --dry-run              Print application confirmations without writing the output file.
   --limit <n>            Testing only: process only the first n Gmail matches.
   --batch-size <n>       OpenAI extraction emails per request. Defaults to 10.
   --no-openai            Disable OpenAI extraction.
@@ -176,6 +180,6 @@ function emptyEnrichment() {
     zip: "",
     source_url: "",
     confidence: 0,
-    notes: "Needs employer detail enrichment",
+    notes: "Needs missing company data",
   };
 }
