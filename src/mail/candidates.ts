@@ -1,0 +1,65 @@
+import { CANDIDATE_TERMS } from "../config";
+import type { CandidateMessage, MailMessage } from "../types";
+import { normalizeWhitespace, truncate } from "../text";
+
+export function findCandidateMessages(messages: MailMessage[]): CandidateMessage[] {
+  const candidates: CandidateMessage[] = [];
+
+  for (const message of messages) {
+    const haystack = `${message.subject}\n${message.sender}\n${message.body}`.toLowerCase();
+    const matchedTerms = CANDIDATE_TERMS.filter((term) =>
+      haystack.includes(term.toLowerCase()),
+    );
+
+    if (matchedTerms.length === 0) continue;
+
+    const evidenceExcerpt = findEvidenceExcerpt(message, matchedTerms);
+    const localScore = Math.min(0.95, 0.35 + matchedTerms.length * 0.12);
+
+    candidates.push({
+      ...message,
+      evidenceExcerpt,
+      localScore,
+      matchedTerms,
+    });
+  }
+
+  return dedupeCandidates(candidates);
+}
+
+function findEvidenceExcerpt(
+  message: MailMessage,
+  matchedTerms: readonly string[],
+): string {
+  const cleanedBody = normalizeWhitespace(message.body);
+  const lowerBody = cleanedBody.toLowerCase();
+  const firstTerm = matchedTerms
+    .map((term) => term.toLowerCase())
+    .find((term) => lowerBody.includes(term));
+
+  if (!firstTerm) {
+    return truncate(`${message.subject}. ${cleanedBody}`, 700);
+  }
+
+  const index = lowerBody.indexOf(firstTerm);
+  const start = Math.max(0, index - 220);
+  const end = Math.min(cleanedBody.length, index + 480);
+  return truncate(cleanedBody.slice(start, end), 700);
+}
+
+function dedupeCandidates(candidates: CandidateMessage[]): CandidateMessage[] {
+  const seen = new Set<string>();
+  const deduped: CandidateMessage[] = [];
+
+  for (const candidate of candidates) {
+    const key =
+      candidate.messageId ||
+      `${candidate.subject}|${candidate.sender}|${candidate.dateReceived}|${candidate.dateSent}`;
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(candidate);
+  }
+
+  return deduped;
+}

@@ -1,0 +1,162 @@
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import http from "node:http";
+import path from "node:path";
+import { google } from "googleapis";
+
+const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const DEFAULT_CREDENTIALS_PATH = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "google-oauth-client.json",
+);
+const DEFAULT_TOKEN_PATH = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "cache",
+  "gmail-token.json",
+);
+
+type GoogleOAuthCredentials = {
+  installed?: OAuthClientConfig;
+  web?: OAuthClientConfig;
+};
+
+type OAuthClientConfig = {
+  client_id: string;
+  client_secret: string;
+  redirect_uris?: string[];
+};
+
+type GoogleOAuth2Client = InstanceType<typeof google.auth.OAuth2>;
+
+export async function getGmailAuthClient(): Promise<GoogleOAuth2Client> {
+  const credentialsPath =
+    process.env.GOOGLE_OAUTH_CLIENT_PATH || DEFAULT_CREDENTIALS_PATH;
+  const tokenPath = process.env.GMAIL_TOKEN_PATH || DEFAULT_TOKEN_PATH;
+  const config = await readOAuthClientConfig(credentialsPath);
+  const oauth2Client = new google.auth.OAuth2({
+    clientId: config.client_id,
+    clientSecret: config.client_secret,
+  });
+
+  const cachedToken = await readJsonIfExists(tokenPath);
+  if (cachedToken) {
+    oauth2Client.setCredentials(cachedToken);
+    return oauth2Client;
+  }
+
+  const tokens = await runLocalOAuthFlow(oauth2Client, config);
+  await fs.mkdir(path.dirname(tokenPath), { recursive: true });
+  await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  oauth2Client.setCredentials(tokens);
+  return oauth2Client;
+}
+
+async function readOAuthClientConfig(
+  credentialsPath: string,
+): Promise<OAuthClientConfig> {
+  try {
+    const raw = await fs.readFile(credentialsPath, "utf8");
+    const parsed = JSON.parse(raw) as GoogleOAuthCredentials;
+    const config = parsed.installed || parsed.web;
+    if (!config?.client_id || !config.client_secret) {
+      throw new Error("Missing client_id/client_secret.");
+    }
+    return config;
+  } catch (error) {
+    throw new Error(
+      [
+        `Unable to read Google OAuth client file at ${credentialsPath}.`,
+        "Create a Google Cloud OAuth client for a desktop app, enable the Gmail API, download the JSON, and save it there.",
+        (error as Error).message,
+      ].join(" "),
+    );
+  }
+}
+
+async function readJsonIfExists(
+  filePath: string,
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+async function runLocalOAuthFlow(
+  oauth2Client: GoogleOAuth2Client,
+  config: OAuthClientConfig,
+): Promise<Record<string, unknown>> {
+  const baseRedirect = new URL(config.redirect_uris?.[0] || "http://localhost");
+  if (baseRedirect.hostname !== "localhost") {
+    throw new Error(
+      `Expected a localhost redirect URI in google-oauth-client.json, got ${baseRedirect.toString()}`,
+    );
+  }
+
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(async (request, response) => {
+      try {
+        const requestUrl = new URL(
+          request.url || "/",
+          `${baseRedirect.protocol}//${baseRedirect.host}`,
+        );
+
+        if (requestUrl.pathname !== baseRedirect.pathname) {
+          response.writeHead(404);
+          response.end("Invalid OAuth callback path.");
+          return;
+        }
+
+        const error = requestUrl.searchParams.get("error");
+        if (error) throw new Error(`OAuth failed: ${error}`);
+
+        const code = requestUrl.searchParams.get("code");
+        if (!code) throw new Error("OAuth callback did not include a code.");
+
+        const redirectUri = baseRedirect.toString();
+        const { tokens } = await oauth2Client.getToken({
+          code,
+          redirect_uri: redirectUri,
+        });
+
+        response.writeHead(200, { "Content-Type": "text/plain" });
+        response.end("Gmail authorization complete. You can close this tab.");
+        server.close();
+        resolve(tokens as Record<string, unknown>);
+      } catch (error) {
+        response.writeHead(500, { "Content-Type": "text/plain" });
+        response.end((error as Error).message);
+        server.close();
+        reject(error);
+      }
+    });
+
+    server.on("error", reject);
+    server.listen(0, "localhost", () => {
+      const address = server.address();
+      if (typeof address === "object" && address?.port) {
+        baseRedirect.port = String(address.port);
+      }
+
+      const authUrl = oauth2Client.generateAuthUrl({
+        redirect_uri: baseRedirect.toString(),
+        access_type: "offline",
+        prompt: "consent",
+        scope: [GMAIL_READONLY_SCOPE],
+      });
+
+      console.log(`Open this URL to authorize Gmail read-only access:\n${authUrl}`);
+      execFile("open", [authUrl], () => undefined);
+    });
+  });
+}
