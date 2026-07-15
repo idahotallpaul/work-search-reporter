@@ -10,7 +10,6 @@ export const CSV_COLUMNS = [
   "action_type",
   "company",
   "job_title",
-  "how_applied",
   "employer_website",
   "employer_contact",
   "mailing_address_line_1",

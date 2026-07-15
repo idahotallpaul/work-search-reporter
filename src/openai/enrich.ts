@@ -25,7 +25,6 @@ export async function enrichEmployer(
             content: JSON.stringify({
               company: action.company,
               job_title: action.job_title,
-              how_applied: action.how_applied,
             }),
           },
         ],
@@ -61,7 +60,6 @@ export async function enrichEmployerRow(
       action_type: row.action_type,
       company: row.company,
       job_title: row.job_title,
-      how_applied: row.how_applied,
       evidence_excerpt: row.evidence_excerpt,
       confidence: Number(row.confidence) || 0.75,
       notes: row.notes,

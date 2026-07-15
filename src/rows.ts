@@ -29,7 +29,6 @@ export function toWorkSearchRow(
     action_type: action.action_type,
     company: action.company,
     job_title: action.job_title,
-    how_applied: action.how_applied,
     employer_website: enrichment.employer_website,
     employer_contact: enrichment.employer_contact,
     mailing_address_line_1: enrichment.mailing_address_line_1,

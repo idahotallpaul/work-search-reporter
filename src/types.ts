@@ -46,7 +46,6 @@ export type ExtractedAction = {
   action_type: string;
   company: string;
   job_title: string;
-  how_applied: string;
   evidence_excerpt: string;
   confidence: number;
   notes: string;
@@ -72,7 +71,6 @@ export type WorkSearchRow = {
   action_type: string;
   company: string;
   job_title: string;
-  how_applied: string;
   employer_website: string;
   employer_contact: string;
   mailing_address_line_1: string;
