@@ -1,7 +1,13 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
+import {
+  formatLocalDate,
+  getCurrentSundayWeek,
+  getLastCompletedSundayWeek,
+  getWeekFromStart,
+  parseIsoLocalDate,
+} from "./dates";
 
 type PromptResult = string | symbol;
 
@@ -14,6 +20,7 @@ type Prompts = {
   select: (options: {
     message: string;
     options: Array<{ label: string; value: string; hint?: string }>;
+    initialValue?: string;
   }) => Promise<string | symbol>;
   text: (options: {
     message: string;
@@ -32,7 +39,19 @@ type MenuAction = {
   exit?: boolean;
 };
 
+type WeekChoice = {
+  label: string;
+  value: string;
+  hint?: string;
+};
+
 const actions: MenuAction[] = [
+  {
+    id: "change-week",
+    label: "Change week",
+    description: "Choose a different Sunday start date.",
+    setWeek: true,
+  },
   {
     id: "count",
     label: "Count matching emails",
@@ -52,12 +71,6 @@ const actions: MenuAction[] = [
     label: "Fetch missing company data",
     description: "Fill missing website, contact, and address fields in the CSV.",
     command: "src/enrichCli.ts",
-  },
-  {
-    id: "change-week",
-    label: "Change week",
-    description: "Choose a different Sunday start date.",
-    setWeek: true,
   },
   {
     id: "exit",
@@ -83,7 +96,7 @@ async function main(): Promise<void> {
     }
 
     if (action.setWeek) {
-      weekStart = await promptForWeekStart(prompts);
+      weekStart = await promptForWeekStart(prompts, weekStart);
       continue;
     }
     if (!action.command) {
@@ -120,7 +133,10 @@ async function promptForAction(
     options: actions.map((action) => ({
       label: action.label,
       value: action.id,
-      hint: action.description,
+      hint:
+        action.id === "change-week"
+          ? `Current selection: ${activeWeek.claimWeekStart} through ${activeWeek.claimWeekEnd}`
+          : action.description,
     })),
   });
 
@@ -133,25 +149,94 @@ async function promptForAction(
 
 async function promptForWeekStart(
   prompts: Prompts,
+  currentWeekStart: string | undefined,
 ): Promise<string | undefined> {
-  const { cancel, isCancel, note, text } = prompts;
+  const { cancel, isCancel, note, select, text } = prompts;
   const defaultWeek = getLastCompletedSundayWeek();
+  const activeWeekStart = currentWeekStart ?? defaultWeek.claimWeekStart;
+  const selected = await select({
+    message: "Choose claim week",
+    options: buildWeekChoices(activeWeekStart),
+    initialValue: activeWeekStart,
+  });
+
+  if (isCancel(selected)) {
+    cancel("Canceled.");
+    return currentWeekStart;
+  }
+
+  if (selected === "back") return currentWeekStart;
+  if (selected !== "manual") {
+    const week = getWeekFromStart(selected);
+    note(`${week.claimWeekStart} through ${week.claimWeekEnd}`, "Using claim week");
+    return week.claimWeekStart;
+  }
+
   const answer = await text({
-    message: "Enter a Sunday start date, or leave blank for the default",
+    message: "Enter a Sunday start date",
     placeholder: defaultWeek.claimWeekStart,
   });
 
   if (isCancel(answer)) {
     cancel("Canceled.");
-    return undefined;
+    return currentWeekStart;
   }
 
   const weekStart = answer.trim();
-  if (!weekStart) return undefined;
+  if (!weekStart) return currentWeekStart;
 
   const week = getWeekFromStart(weekStart);
   note(`${week.claimWeekStart} through ${week.claimWeekEnd}`, "Using claim week");
   return week.claimWeekStart;
+}
+
+function buildWeekChoices(activeWeekStart: string | undefined): WeekChoice[] {
+  const currentWeek = getCurrentSundayWeek();
+  const lastCompletedWeek = getLastCompletedSundayWeek();
+  const weekStarts = new Set<string>([
+    currentWeek.claimWeekStart,
+    lastCompletedWeek.claimWeekStart,
+  ]);
+  if (activeWeekStart) weekStarts.add(activeWeekStart);
+
+  let previousStart = parseIsoLocalDate(lastCompletedWeek.claimWeekStart);
+  for (let i = 0; i < 8; i += 1) {
+    weekStarts.add(formatLocalDate(previousStart));
+    previousStart = new Date(previousStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+  }
+
+  const choices: WeekChoice[] = [...weekStarts]
+    .sort()
+    .reverse()
+    .map((start) => {
+      const week = getWeekFromStart(start);
+      const labels = [];
+      if (start === activeWeekStart) labels.push("active week");
+      if (start === currentWeek.claimWeekStart) labels.push("current week");
+      if (start === lastCompletedWeek.claimWeekStart) {
+        labels.push("last completed week");
+      }
+
+      return {
+        label: `${week.claimWeekStart} through ${week.claimWeekEnd}`,
+        value: week.claimWeekStart,
+        hint: labels.join(", ") || undefined,
+      };
+    });
+
+  choices.push(
+    {
+      label: "Enter a date manually",
+      value: "manual",
+      hint: "Use a Sunday start date",
+    },
+    {
+      label: "Back to menu",
+      value: "back",
+    },
+  );
+
+  return choices;
 }
 
 async function loadPrompts(): Promise<Prompts> {

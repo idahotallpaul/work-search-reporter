@@ -15,11 +15,11 @@ The interactive menu is the normal entrypoint. It lets you count matching emails
 ```mermaid
 flowchart TD
   A["pnpm start"] --> B["Choose menu option"]
-  B --> C["Count matching emails"]
-  B --> D["Fetch application confirmation emails"]
-  B --> E["Fetch missing company data"]
-  B --> F["Change week"]
-  F --> B
+  B --> C["Change week"]
+  B --> D["Count matching emails"]
+  B --> E["Fetch application confirmation emails"]
+  B --> F["Fetch missing company data"]
+  C --> B
 ```
 
 ## Setup
@@ -117,11 +117,13 @@ Interactive menu. No flags.
 
 Menu options:
 
+- `Change week`
 - `Count matching emails`
 - `Fetch application confirmation emails`
 - `Fetch missing company data`
-- `Change week`
 - `Exit`
+
+`Change week` displays the current selection in the menu, then opens an arrow-key submenu with the current week, last completed week, several previous weeks, a manual Sunday start-date entry, and a back option.
 
 ### `pnpm count`
 

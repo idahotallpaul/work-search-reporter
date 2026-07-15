@@ -17,6 +17,12 @@ export function getLastCompletedSundayWeek(now = new Date()): WeekWindow {
   };
 }
 
+export function getCurrentSundayWeek(now = new Date()): WeekWindow {
+  const today = startOfLocalDay(now);
+  const currentSunday = addDays(today, -today.getDay());
+  return getWeekFromStart(formatLocalDate(currentSunday));
+}
+
 export function getWeekFromStart(startIsoDate: string): WeekWindow {
   const start = parseIsoLocalDate(startIsoDate);
   const endExclusive = addDays(start, 7);
