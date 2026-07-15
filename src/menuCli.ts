@@ -1,11 +1,32 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
-import readline from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
 
 import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
 
+type PromptResult = string | boolean | symbol;
+
+type Prompts = {
+  cancel: (message?: string) => void;
+  confirm: (options: {
+    message: string;
+    initialValue?: boolean;
+  }) => Promise<boolean | symbol>;
+  intro: (message?: string) => void;
+  isCancel: (value: PromptResult) => value is symbol;
+  note: (message: string, title?: string) => void;
+  outro: (message?: string) => void;
+  select: (options: {
+    message: string;
+    options: Array<{ label: string; value: string; hint?: string }>;
+  }) => Promise<string | symbol>;
+  text: (options: {
+    message: string;
+    placeholder?: string;
+  }) => Promise<string | symbol>;
+};
+
 type MenuAction = {
+  id: string;
   label: string;
   description: string;
   command?: string;
@@ -17,12 +38,14 @@ type MenuAction = {
 
 const actions: MenuAction[] = [
   {
+    id: "count",
     label: "Count matching emails",
     description: "Show how many confirmation-like emails Gmail finds for the week.",
     command: "src/countCli.ts",
     usesWeek: true,
   },
   {
+    id: "preview",
     label: "Preview collection",
     description: "Run extraction and print CSV rows without writing anything.",
     command: "src/cli.ts",
@@ -30,28 +53,33 @@ const actions: MenuAction[] = [
     usesWeek: true,
   },
   {
+    id: "collect",
     label: "Collect draft rows",
     description: "Append new confirmation rows to the CSV.",
     command: "src/cli.ts",
     usesWeek: true,
   },
   {
+    id: "preview-enrichment",
     label: "Preview enrichment",
     description: "Look up employer details and print a CSV preview without writing.",
     command: "src/enrichCli.ts",
     args: ["--dry-run"],
   },
   {
+    id: "enrich",
     label: "Enrich remaining rows",
     description: "Fill missing employer details for rows still in the CSV.",
     command: "src/enrichCli.ts",
   },
   {
+    id: "change-week",
     label: "Change week",
     description: "Choose a different Sunday start date.",
     setWeek: true,
   },
   {
+    id: "exit",
     label: "Exit",
     description: "Close the menu.",
     exit: true,
@@ -59,93 +87,103 @@ const actions: MenuAction[] = [
 ];
 
 async function main(): Promise<void> {
-  const rl = readline.createInterface({ input, output });
+  const prompts = await loadPrompts();
+  const { confirm, intro, isCancel, outro } = prompts;
+
+  intro("Work Search Reporter");
   let weekStart: string | undefined;
-  try {
-    while (true) {
-      const choice = await promptForAction(rl, weekStart);
-      const action = actions[choice];
-      if (action.exit) return;
-      if (action.setWeek) {
-        weekStart = await promptForWeekStart(rl);
-        continue;
-      }
-      if (!action.command) return;
 
-      const args = [...(action.args || [])];
-      if (action.usesWeek && weekStart) {
-        args.push("--week-start", weekStart);
-      }
-
-      console.log("");
-      await runTsNode(action.command, args);
-      console.log("");
-
-      const again = await safeQuestion(rl, "Back to menu? [Y/n] ");
-      if (again === undefined || again.trim().toLowerCase() === "n") return;
+  while (true) {
+    const action = await promptForAction(prompts, weekStart);
+    if (!action) return;
+    if (action.exit) {
+      outro("Done.");
+      return;
     }
-  } finally {
-    rl.close();
-  }
-}
 
-async function safeQuestion(
-  rl: readline.Interface,
-  prompt: string,
-): Promise<string | undefined> {
-  try {
-    return await rl.question(prompt);
-  } catch (error) {
-    if ((error as Error).message.includes("readline was closed")) {
-      return undefined;
+    if (action.setWeek) {
+      weekStart = await promptForWeekStart(prompts);
+      continue;
     }
-    throw error;
+    if (!action.command) {
+      outro("Done.");
+      return;
+    }
+
+    const args = [...(action.args || [])];
+    if (action.usesWeek && weekStart) {
+      args.push("--week-start", weekStart);
+    }
+
+    console.log("");
+    await runTsNode(action.command, args);
+    console.log("");
+
+    const again = await confirm({
+      message: "Back to menu?",
+      initialValue: true,
+    });
+    if (isCancel(again) || !again) {
+      outro("Done.");
+      return;
+    }
   }
 }
 
 async function promptForAction(
-  rl: readline.Interface,
+  prompts: Prompts,
   weekStart: string | undefined,
-): Promise<number> {
+): Promise<MenuAction | undefined> {
+  const { cancel, isCancel, note, select } = prompts;
   const activeWeek = weekStart
     ? getWeekFromStart(weekStart)
     : getLastCompletedSundayWeek();
-  console.log("\nWork Search Reporter");
-  console.log("====================");
-  console.log(
-    `Active claim week: ${activeWeek.claimWeekStart} through ${activeWeek.claimWeekEnd}`,
+
+  note(
+    `${activeWeek.claimWeekStart} through ${activeWeek.claimWeekEnd}`,
+    "Active claim week",
   );
-  actions.forEach((action, index) => {
-    console.log(`${index + 1}. ${action.label}`);
-    console.log(`   ${action.description}`);
+  const selected = await select({
+    message: "Choose an action",
+    options: actions.map((action) => ({
+      label: action.label,
+      value: action.id,
+      hint: action.description,
+    })),
   });
 
-  while (true) {
-    const answer = await rl.question("\nChoose an option: ");
-    const choice = Number(answer.trim());
-    if (Number.isInteger(choice) && choice >= 1 && choice <= actions.length) {
-      return choice - 1;
-    }
-    console.log(`Enter a number from 1 to ${actions.length}.`);
+  if (isCancel(selected)) {
+    cancel("Canceled.");
+    return undefined;
   }
+  return actions.find((action) => action.id === selected);
 }
 
 async function promptForWeekStart(
-  rl: readline.Interface,
+  prompts: Prompts,
 ): Promise<string | undefined> {
+  const { cancel, isCancel, note, text } = prompts;
   const defaultWeek = getLastCompletedSundayWeek();
-  console.log(
-    `\nDefault claim week: ${defaultWeek.claimWeekStart} through ${defaultWeek.claimWeekEnd}`,
-  );
-  const answer = await rl.question(
-    "Press Enter to return to the default, or enter a Sunday start date (YYYY-MM-DD): ",
-  );
+  const answer = await text({
+    message: "Enter a Sunday start date, or leave blank for the default",
+    placeholder: defaultWeek.claimWeekStart,
+  });
+
+  if (isCancel(answer)) {
+    cancel("Canceled.");
+    return undefined;
+  }
+
   const weekStart = answer.trim();
   if (!weekStart) return undefined;
 
   const week = getWeekFromStart(weekStart);
-  console.log(`Using claim week: ${week.claimWeekStart} through ${week.claimWeekEnd}`);
+  note(`${week.claimWeekStart} through ${week.claimWeekEnd}`, "Using claim week");
   return week.claimWeekStart;
+}
+
+async function loadPrompts(): Promise<Prompts> {
+  return import("@clack/prompts") as Promise<Prompts>;
 }
 
 function runTsNode(scriptPath: string, args: string[]): Promise<void> {
