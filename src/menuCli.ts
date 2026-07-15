@@ -33,7 +33,6 @@ type MenuAction = {
   label: string;
   description: string;
   command?: string;
-  args?: string[];
   usesWeek?: boolean;
   setWeek?: boolean;
   exit?: boolean;
@@ -218,7 +217,10 @@ const loadPrompts = async (): Promise<Prompts> => {
   return import("@clack/prompts") as Promise<Prompts>;
 };
 
-const runTsNode = (scriptPath: string, args: string[]): Promise<void> => {
+const runTsNode = (
+  scriptPath: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<void> => {
   const tsNodePath = path.resolve(
     __dirname,
     "..",
@@ -230,9 +232,10 @@ const runTsNode = (scriptPath: string, args: string[]): Promise<void> => {
   return new Promise((resolve, reject) => {
     const child = spawn(
       tsNodePath,
-      ["--project", "tsconfig.json", scriptPath, ...args],
+      ["--project", "tsconfig.json", scriptPath],
       {
         cwd: path.resolve(__dirname, ".."),
+        env: { ...process.env, ...env },
         stdio: "inherit",
       },
     );
@@ -272,13 +275,11 @@ const main = async (): Promise<void> => {
       return;
     }
 
-    const args = [...(action.args || [])];
-    if (action.usesWeek && weekStart) {
-      args.push("--week-start", weekStart);
-    }
+    const env =
+      action.usesWeek && weekStart ? { WORK_SEARCH_WEEK_START: weekStart } : {};
 
     console.log("");
-    await runTsNode(action.command, args);
+    await runTsNode(action.command, env);
     console.log("");
   }
 };

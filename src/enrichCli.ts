@@ -3,18 +3,11 @@ import path from "node:path";
 import dotenv from "dotenv";
 
 import { DEFAULT_OUTPUT_PATH } from "./config";
-import { readRows, stringifyCsv, writeRowsWithBackup } from "./csv/csv";
+import { readRows, writeRowsWithBackup } from "./csv/csv";
 import { enrichEmployerRow } from "./openai/enrich";
 import type { EnrichedEmployer, WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
-
-type EnrichOptions = {
-  concurrency: number;
-  dryRun: boolean;
-  limit?: number;
-  outputPath: string;
-};
 
 const shouldEnrich = (row: WorkSearchRow): boolean => {
   if (!row.company.trim()) return false;
@@ -84,71 +77,15 @@ const runWithConcurrency = async <T>(
   await Promise.all(workers);
 };
 
-const requiredValue = (args: string[], index: number, flag: string): string => {
-  const value = args[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.`);
+const assertNoArgs = (): void => {
+  if (process.argv.length > 2) {
+    throw new Error("This command does not take flags. Run pnpm start.");
   }
-  return value;
-};
-
-const printHelpAndExit = (): never => {
-  console.log(`Usage: pnpm enrich -- [options]
-
-Options:
-  --dry-run              Print CSV with missing company data without writing the output file.
-  --limit <n>            Fetch company data for only the first n matching entries.
-  --concurrency <n>      Parallel company data lookups. Defaults to 2.
-  --output <path>        CSV output path. Defaults to ${DEFAULT_OUTPUT_PATH}.
-  --help                 Show this help.
-`);
-  process.exit(0);
-};
-
-const parseArgs = (args: string[]): EnrichOptions => {
-  const options: EnrichOptions = {
-    concurrency: 2,
-    dryRun: false,
-    outputPath: DEFAULT_OUTPUT_PATH,
-  };
-
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    switch (arg) {
-      case "--":
-        break;
-      case "--concurrency":
-        options.concurrency = Number(requiredValue(args, ++i, arg));
-        if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
-          throw new Error("--concurrency must be a positive integer.");
-        }
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--limit":
-        options.limit = Number(requiredValue(args, ++i, arg));
-        if (!Number.isInteger(options.limit) || options.limit < 1) {
-          throw new Error("--limit must be a positive integer.");
-        }
-        break;
-      case "--output":
-        options.outputPath = path.resolve(requiredValue(args, ++i, arg));
-        break;
-      case "--help":
-      case "-h":
-        printHelpAndExit();
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return options;
 };
 
 const main = async (): Promise<void> => {
-  const options = parseArgs(process.argv.slice(2));
+  assertNoArgs();
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -156,16 +93,15 @@ const main = async (): Promise<void> => {
     );
   }
 
-  const rows = await readRows(options.outputPath);
+  const rows = await readRows(DEFAULT_OUTPUT_PATH);
   if (rows.length === 0) {
-    console.log(`No CSV entries found at ${options.outputPath}.`);
+    console.log(`No CSV entries found at ${DEFAULT_OUTPUT_PATH}.`);
     return;
   }
 
   const targets = rows
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => shouldEnrich(row))
-    .slice(0, options.limit ?? Number.POSITIVE_INFINITY);
+    .filter(({ row }) => shouldEnrich(row));
 
   if (targets.length === 0) {
     console.log("No entries with missing company data found.");
@@ -173,37 +109,25 @@ const main = async (): Promise<void> => {
   }
 
   console.log(
-    `Fetching missing company data for ${targets.length} entr${targets.length === 1 ? "y" : "ies"} with concurrency ${options.concurrency}.`,
+    `Fetching missing company data for ${targets.length} entr${targets.length === 1 ? "y" : "ies"} with concurrency 2.`,
   );
 
   const updatedRows = [...rows];
-  await runWithConcurrency(
-    targets,
-    options.concurrency,
-    async ({ row, index }) => {
-      console.log(
-        `Fetching company data: ${row.company || "(missing company)"} ${row.job_title ? `- ${row.job_title}` : ""}`,
-      );
-      const enrichment = await enrichEmployerRow(row, apiKey);
-      updatedRows[index] = applyEnrichment(row, enrichment);
-    },
-  );
-
-  if (options.dryRun) {
+  await runWithConcurrency(targets, 2, async ({ row, index }) => {
     console.log(
-      "Dry run: CSV with missing company data follows; no file was written.",
+      `Fetching company data: ${row.company || "(missing company)"} ${row.job_title ? `- ${row.job_title}` : ""}`,
     );
-    process.stdout.write(stringifyCsv(updatedRows));
-    return;
-  }
+    const enrichment = await enrichEmployerRow(row, apiKey);
+    updatedRows[index] = applyEnrichment(row, enrichment);
+  });
 
   await writeRowsWithBackup(
-    options.outputPath,
+    DEFAULT_OUTPUT_PATH,
     path.resolve(__dirname, "..", "backups"),
     updatedRows,
   );
   console.log(
-    `Updated ${targets.length} entr${targets.length === 1 ? "y" : "ies"} in ${options.outputPath}.`,
+    `Updated ${targets.length} entr${targets.length === 1 ? "y" : "ies"} in ${DEFAULT_OUTPUT_PATH}.`,
   );
 };
 

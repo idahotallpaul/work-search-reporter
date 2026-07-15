@@ -7,55 +7,17 @@ import { countGmailMessages } from "./gmail/messages";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
-type CountOptions = {
-  weekStart?: string;
-};
-
-const requiredValue = (args: string[], index: number, flag: string): string => {
-  const value = args[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.`);
+const assertNoArgs = (): void => {
+  if (process.argv.length > 2) {
+    throw new Error("This command does not take flags. Run pnpm start.");
   }
-  return value;
-};
-
-const printHelpAndExit = (): never => {
-  console.log(`Usage: pnpm count -- [options]
-
-Options:
-  --week-start <date>    Claim week Sunday as YYYY-MM-DD. Defaults to last completed Sunday week.
-  --help                 Show this help.
-`);
-  process.exit(0);
-};
-
-const parseArgs = (args: string[]): CountOptions => {
-  const options: CountOptions = {};
-
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    switch (arg) {
-      case "--":
-        break;
-      case "--week-start":
-        options.weekStart = requiredValue(args, ++i, arg);
-        break;
-      case "--help":
-      case "-h":
-        printHelpAndExit();
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return options;
 };
 
 const main = async (): Promise<void> => {
-  const options = parseArgs(process.argv.slice(2));
-  const week = options.weekStart
-    ? getWeekFromStart(options.weekStart)
+  assertNoArgs();
+
+  const week = process.env.WORK_SEARCH_WEEK_START
+    ? getWeekFromStart(process.env.WORK_SEARCH_WEEK_START)
     : getLastCompletedSundayWeek();
   const { count, query } = await countGmailMessages(week);
 

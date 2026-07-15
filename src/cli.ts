@@ -3,87 +3,15 @@ import path from "node:path";
 import dotenv from "dotenv";
 
 import { DEFAULT_OUTPUT_PATH } from "./config";
-import { appendRowsWithBackup, readRows, stringifyCsv } from "./csv/csv";
+import { appendRowsWithBackup, readRows } from "./csv/csv";
 import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
 import { collectGmailMessages } from "./gmail/messages";
 import { findCandidateMessages } from "./mail/candidates";
 import { candidateSourceId, extractActions } from "./openai/extract";
 import { filterNewRows, toWorkSearchRow } from "./rows";
-import type { CliOptions, WorkSearchRow } from "./types";
+import type { WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
-
-const requiredValue = (args: string[], index: number, flag: string): string => {
-  const value = args[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.`);
-  }
-  return value;
-};
-
-const printHelpAndExit = (): never => {
-  console.log(`Usage: pnpm collect -- [options]
-
-Options:
-  --dry-run              Print application confirmations without writing the output file.
-  --limit <n>            Testing only: process only the first n Gmail matches.
-  --batch-size <n>       OpenAI extraction emails per request. Defaults to 10.
-  --no-openai            Disable OpenAI extraction.
-  --week-start <date>    Claim week Sunday as YYYY-MM-DD. Defaults to last completed Sunday week.
-  --output <path>        CSV output path. Defaults to ${DEFAULT_OUTPUT_PATH}.
-  --help                 Show this help.
-`);
-  process.exit(0);
-};
-
-const parseArgs = (args: string[]): CliOptions => {
-  const options: CliOptions = {
-    batchSize: 10,
-    dryRun: false,
-    noOpenAI: false,
-    outputPath: DEFAULT_OUTPUT_PATH,
-  };
-
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    switch (arg) {
-      case "--":
-        break;
-      case "--dry-run":
-        options.dryRun = true;
-        break;
-      case "--limit":
-        options.limit = Number(requiredValue(args, ++i, arg));
-        if (!Number.isInteger(options.limit) || options.limit < 1) {
-          throw new Error("--limit must be a positive integer.");
-        }
-        break;
-      case "--batch-size":
-        options.batchSize = Number(requiredValue(args, ++i, arg));
-        if (!Number.isInteger(options.batchSize) || options.batchSize < 1) {
-          throw new Error("--batch-size must be a positive integer.");
-        }
-        break;
-      case "--no-openai":
-        options.noOpenAI = true;
-        break;
-      case "--output":
-        options.outputPath = path.resolve(requiredValue(args, ++i, arg));
-        break;
-      case "--week-start":
-        options.weekStart = requiredValue(args, ++i, arg);
-        break;
-      case "--help":
-      case "-h":
-        printHelpAndExit();
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return options;
-};
 
 const emptyEnrichment = () => {
   return {
@@ -100,25 +28,26 @@ const emptyEnrichment = () => {
   };
 };
 
+const assertNoArgs = (): void => {
+  if (process.argv.length > 2) {
+    throw new Error("This command does not take flags. Run pnpm start.");
+  }
+};
+
 const main = async (): Promise<void> => {
-  const options = parseArgs(process.argv.slice(2));
-  const week = options.weekStart
-    ? getWeekFromStart(options.weekStart)
+  assertNoArgs();
+
+  const week = process.env.WORK_SEARCH_WEEK_START
+    ? getWeekFromStart(process.env.WORK_SEARCH_WEEK_START)
     : getLastCompletedSundayWeek();
 
-  const apiKey =
-    options.noOpenAI || !process.env.OPENAI_API_KEY
-      ? undefined
-      : process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
 
   console.log(
     `Searching Gmail for ${week.claimWeekStart} through ${week.claimWeekEnd}...`,
   );
 
-  const messages = await collectGmailMessages({
-    week,
-    maxResults: options.limit,
-  });
+  const messages = await collectGmailMessages({ week });
 
   console.log(`Read ${messages.length} matching message(s) from Gmail.`);
 
@@ -126,22 +55,15 @@ const main = async (): Promise<void> => {
 
   console.log(`Found ${candidates.length} candidate work-search messages.`);
   if (!apiKey) {
-    console.log(
-      "OPENAI_API_KEY not set or --no-openai used; using local extraction only.",
-    );
+    console.log("OPENAI_API_KEY not set; using local extraction only.");
   }
 
   console.log(
     apiKey
-      ? `Extracting candidates in batch(es) of ${options.batchSize}.`
+      ? "Extracting candidates in batch(es) of 10."
       : "Extracting candidates with local heuristics.",
   );
-  const actionsById = await extractActions(
-    candidates,
-    week,
-    options.batchSize,
-    apiKey,
-  );
+  const actionsById = await extractActions(candidates, week, 10, apiKey);
 
   const rows: WorkSearchRow[] = [];
   for (const [index, candidate] of candidates.entries()) {
@@ -156,16 +78,8 @@ const main = async (): Promise<void> => {
     rows.push(toWorkSearchRow(week, candidate, action, emptyEnrichment()));
   }
 
-  const existingRows = await readRows(options.outputPath);
+  const existingRows = await readRows(DEFAULT_OUTPUT_PATH);
   const newRows = filterNewRows(existingRows, rows);
-
-  if (options.dryRun) {
-    console.log(
-      `Dry run: ${newRows.length} application confirmation(s) would be added.`,
-    );
-    process.stdout.write(stringifyCsv(newRows));
-    return;
-  }
 
   if (newRows.length === 0) {
     console.log("No new application confirmation emails found.");
@@ -173,12 +87,12 @@ const main = async (): Promise<void> => {
   }
 
   await appendRowsWithBackup(
-    options.outputPath,
+    DEFAULT_OUTPUT_PATH,
     path.resolve(__dirname, "..", "backups"),
     newRows,
   );
   console.log(
-    `Added ${newRows.length} application confirmation(s) to ${options.outputPath}.`,
+    `Added ${newRows.length} application confirmation(s) to ${DEFAULT_OUTPUT_PATH}.`,
   );
 };
 

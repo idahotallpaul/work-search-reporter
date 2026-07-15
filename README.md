@@ -10,7 +10,7 @@ Local TypeScript CLI for fetching Gmail application confirmation emails, filling
 pnpm start
 ```
 
-The interactive menu is the normal entrypoint. It lets you count matching emails, fetch application confirmation emails, fetch missing company data, or change the active claim week.
+The interactive menu is the app entrypoint. It lets you count matching emails, fetch application confirmation emails, fetch missing company data, or change the active claim week.
 
 ```mermaid
 flowchart TD
@@ -38,12 +38,11 @@ OPENAI_API_KEY="sk-..."
 
 ## Services Used
 
-| Command | Gmail API | OpenAI extraction | OpenAI web search | CSV read/write |
+| Menu action | Gmail API | OpenAI extraction | OpenAI web search | CSV read/write |
 |---|---:|---:|---:|---:|
-| `pnpm start` | depends on selected option | depends on selected option | depends on selected option | depends on selected option |
-| `pnpm count` | yes | no | no | no |
-| `pnpm collect` | yes | yes | no | add application confirmation emails |
-| `pnpm enrich` | no | no | yes | fill missing company data |
+| `Count matching emails` | yes | no | no | no |
+| `Fetch application confirmation emails` | yes | yes | no | add application confirmation emails |
+| `Fetch missing company data` | no | no | yes | fill missing company data |
 
 ## Workflows
 
@@ -51,13 +50,9 @@ OPENAI_API_KEY="sk-..."
 
 Use this to see how many Gmail messages match the broad application-related query for the active week. It does not fetch full email bodies and does not call OpenAI.
 
-```sh
-pnpm count
-```
-
 ```mermaid
 flowchart LR
-  A["pnpm count"] --> B["Build claim-week Gmail query"]
+  A["Count matching emails"] --> B["Build claim-week Gmail query"]
   B --> C["Gmail API: list matching message IDs"]
   C --> D["Print matching count"]
 ```
@@ -66,13 +61,9 @@ flowchart LR
 
 Use this to find application confirmation emails and add them to the CSV. It does not fetch missing company data.
 
-```sh
-pnpm collect
-```
-
 ```mermaid
 flowchart TD
-  A["pnpm collect"] --> B["Gmail API: list and fetch candidate messages"]
+  A["Fetch application confirmation emails"] --> B["Gmail API: list and fetch candidate messages"]
   B --> C["OpenAI extraction"]
   C --> D["Reject non-confirmations"]
   D --> E["Dedupe against existing CSV"]
@@ -95,13 +86,9 @@ flowchart LR
 
 Use this after review. It reads the CSV, finds entries with missing company data, and uses OpenAI web search to fill website, contact, address, and source URL fields.
 
-```sh
-pnpm enrich
-```
-
 ```mermaid
 flowchart TD
-  A["pnpm enrich"] --> B["Read CSV"]
+  A["Fetch missing company data"] --> B["Read CSV"]
   B --> C["Find entries with missing company data"]
   C --> D["OpenAI web search per company"]
   D --> E["Fill website/contact/address/source URL"]
@@ -109,7 +96,7 @@ flowchart TD
   F --> G["Rewrite CSV with missing company data filled"]
 ```
 
-## Commands
+## Command
 
 ### `pnpm start`
 
@@ -125,66 +112,7 @@ Menu options:
 
 `Change week` displays the current selection in the menu, then opens an arrow-key submenu with the current week, last completed week, several previous weeks, a manual Sunday start-date entry, and a back option.
 
-### `pnpm count`
-
-Counts Gmail messages matching the broad application-related query.
-
-Options:
-
-| Option | Value | Default | Description |
-|---|---|---|---|
-| `--week-start` | `YYYY-MM-DD` | last completed Sunday | Claim week start date. Must be a Sunday for normal Idaho weekly reporting. |
-| `--help`, `-h` | none | none | Show command help. |
-
-Examples:
-
-```sh
-pnpm count
-pnpm count -- --week-start 2026-07-12
-```
-
-### `pnpm collect`
-
-Fetches application confirmation emails and adds them to the CSV.
-
-| Option | Value | Default | Description |
-|---|---|---|---|
-| `--dry-run` | none | off | Print application confirmations without writing the CSV. |
-| `--week-start` | `YYYY-MM-DD` | last completed Sunday | Claim week start date. |
-| `--batch-size` | positive integer | `10` | Number of candidate email snippets sent per OpenAI extraction request. |
-| `--limit` | positive integer | no limit | Testing only. Do not use for real weekly collection. |
-| `--no-openai` | none | off | Disables OpenAI and uses rough local heuristics. |
-| `--output` | file path | `outputs/idaho_work_search_log.csv` | CSV output path. |
-| `--help`, `-h` | none | none | Show command help. |
-
-Examples:
-
-```sh
-pnpm collect
-pnpm collect -- --week-start 2026-07-12
-```
-
-### `pnpm enrich`
-
-Fetches missing company data for entries that remain in the CSV.
-
-Options:
-
-| Option | Value | Default | Description |
-|---|---|---|---|
-| `--dry-run` | none | off | Print the updated CSV to the terminal without writing it. |
-| `--limit` | positive integer | no limit | Fetch company data for only the first `n` matching entries. Useful for testing. |
-| `--concurrency` | positive integer | `2` | Number of company data lookups to run in parallel. |
-| `--output` | file path | `outputs/idaho_work_search_log.csv` | CSV path to read/update. |
-| `--help`, `-h` | none | none | Show command help. |
-
-Examples:
-
-```sh
-pnpm enrich
-pnpm enrich -- --limit 2
-pnpm enrich -- --concurrency 1
-```
+The package still has internal `count`, `collect`, and `enrich` scripts because the menu uses them, but they are not intended as separate user-facing commands and do not take flags.
 
 ## Code Quality
 

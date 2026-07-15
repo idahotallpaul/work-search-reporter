@@ -1,12 +1,3 @@
-export type CliOptions = {
-  dryRun: boolean;
-  batchSize: number;
-  limit?: number;
-  noOpenAI: boolean;
-  outputPath: string;
-  weekStart?: string;
-};
-
 export type DateParts = {
   year: number;
   month: number;
