@@ -1,4 +1,4 @@
-import { google, gmail_v1 } from "googleapis";
+import { type gmail_v1, google } from "googleapis";
 
 import type { MailMessage, WeekWindow } from "../types";
 import { getGmailAuthClient } from "./auth";
@@ -8,50 +8,10 @@ type CollectGmailArgs = {
   maxResults?: number;
 };
 
-export async function countGmailMessages(week: WeekWindow): Promise<{
-  count: number;
-  query: string;
-}> {
-  const auth = await getGmailAuthClient();
-  const gmail = google.gmail({ version: "v1", auth });
-  const query = buildGmailQuery(week);
-  const ids = await listMessageIds(gmail, query);
-
-  return {
-    count: ids.length,
-    query,
-  };
-}
-
-export async function collectGmailMessages({
-  week,
-  maxResults,
-}: CollectGmailArgs): Promise<MailMessage[]> {
-  const auth = await getGmailAuthClient();
-  const gmail = google.gmail({ version: "v1", auth });
-  const profile = await gmail.users.getProfile({ userId: "me" });
-  const account = profile.data.emailAddress || "me";
-  const query = buildGmailQuery(week);
-  console.log(`Gmail query: ${query}`);
-
-  const ids = await listMessageIds(gmail, query, maxResults);
-  const messages: MailMessage[] = [];
-
-  for (const id of ids) {
-    const response = await gmail.users.messages.get({
-      userId: "me",
-      id,
-      format: "full",
-    });
-    messages.push(toMailMessage(response.data, account));
-  }
-
-  return messages;
-}
-
-export function buildGmailQuery(week: WeekWindow): string {
+export const buildGmailQuery = (week: WeekWindow): string => {
   const after = week.claimWeekStart.replace(/-/g, "/");
-  const before = week.queryEndExclusive.year.toString().padStart(4, "0") +
+  const before =
+    week.queryEndExclusive.year.toString().padStart(4, "0") +
     "/" +
     String(week.queryEndExclusive.month).padStart(2, "0") +
     "/" +
@@ -64,13 +24,13 @@ export function buildGmailQuery(week: WeekWindow): string {
     "-in:trash",
     "(application OR applied OR applying OR applicant OR candidacy OR candidate)",
   ].join(" ");
-}
+};
 
-async function listMessageIds(
+const listMessageIds = async (
   gmail: gmail_v1.Gmail,
   query: string,
   maxResults?: number,
-): Promise<string[]> {
+): Promise<string[]> => {
   const ids: string[] = [];
   let pageToken: string | undefined;
 
@@ -94,9 +54,59 @@ async function listMessageIds(
   } while (pageToken && (maxResults === undefined || ids.length < maxResults));
 
   return maxResults === undefined ? ids : ids.slice(0, maxResults);
-}
+};
 
-function toMailMessage(message: gmail_v1.Schema$Message, account: string): MailMessage {
+export const countGmailMessages = async (
+  week: WeekWindow,
+): Promise<{
+  count: number;
+  query: string;
+}> => {
+  const auth = await getGmailAuthClient();
+  const gmail = google.gmail({ version: "v1", auth });
+  const query = buildGmailQuery(week);
+  const ids = await listMessageIds(gmail, query);
+
+  return {
+    count: ids.length,
+    query,
+  };
+};
+
+const header = (
+  headers: gmail_v1.Schema$MessagePartHeader[],
+  name: string,
+): string => {
+  const found = headers.find(
+    (item) => item.name?.toLowerCase() === name.toLowerCase(),
+  );
+  return found?.value || "";
+};
+
+const isReadableMime = (mimeType?: string | null): boolean => {
+  return mimeType === "text/plain" || mimeType === "text/html";
+};
+
+const decodeBase64Url = (value: string): string => {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalized, "base64").toString("utf8");
+};
+
+const extractBody = (part?: gmail_v1.Schema$MessagePart): string => {
+  if (!part) return "";
+
+  if (part.body?.data && isReadableMime(part.mimeType)) {
+    return decodeBase64Url(part.body.data);
+  }
+
+  const childText = (part.parts || []).map(extractBody).filter(Boolean);
+  return childText.join("\n\n");
+};
+
+const toMailMessage = (
+  message: gmail_v1.Schema$Message,
+  account: string,
+): MailMessage => {
   const headers = message.payload?.headers || [];
   const subject = header(headers, "Subject");
   const sender = header(headers, "From");
@@ -118,34 +128,30 @@ function toMailMessage(message: gmail_v1.Schema$Message, account: string): MailM
     body: extractBody(message.payload),
     headers: headers.map((item) => `${item.name}: ${item.value}`).join("\n"),
   };
-}
+};
 
-function header(
-  headers: gmail_v1.Schema$MessagePartHeader[],
-  name: string,
-): string {
-  const found = headers.find(
-    (item) => item.name?.toLowerCase() === name.toLowerCase(),
-  );
-  return found?.value || "";
-}
+export const collectGmailMessages = async ({
+  week,
+  maxResults,
+}: CollectGmailArgs): Promise<MailMessage[]> => {
+  const auth = await getGmailAuthClient();
+  const gmail = google.gmail({ version: "v1", auth });
+  const profile = await gmail.users.getProfile({ userId: "me" });
+  const account = profile.data.emailAddress || "me";
+  const query = buildGmailQuery(week);
+  console.log(`Gmail query: ${query}`);
 
-function extractBody(part?: gmail_v1.Schema$MessagePart): string {
-  if (!part) return "";
+  const ids = await listMessageIds(gmail, query, maxResults);
+  const messages: MailMessage[] = [];
 
-  if (part.body?.data && isReadableMime(part.mimeType)) {
-    return decodeBase64Url(part.body.data);
+  for (const id of ids) {
+    const response = await gmail.users.messages.get({
+      userId: "me",
+      id,
+      format: "full",
+    });
+    messages.push(toMailMessage(response.data, account));
   }
 
-  const childText = (part.parts || []).map(extractBody).filter(Boolean);
-  return childText.join("\n\n");
-}
-
-function isReadableMime(mimeType?: string | null): boolean {
-  return mimeType === "text/plain" || mimeType === "text/html";
-}
-
-function decodeBase64Url(value: string): string {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(normalized, "base64").toString("utf8");
-}
+  return messages;
+};

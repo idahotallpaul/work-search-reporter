@@ -1,4 +1,5 @@
 import path from "node:path";
+
 import dotenv from "dotenv";
 
 import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
@@ -10,19 +11,25 @@ type CountOptions = {
   weekStart?: string;
 };
 
-async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
-  const week = options.weekStart
-    ? getWeekFromStart(options.weekStart)
-    : getLastCompletedSundayWeek();
-  const { count, query } = await countGmailMessages(week);
+const requiredValue = (args: string[], index: number, flag: string): string => {
+  const value = args[index];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${flag} requires a value.`);
+  }
+  return value;
+};
 
-  console.log(`Claim week: ${week.claimWeekStart} through ${week.claimWeekEnd}`);
-  console.log(`Gmail query: ${query}`);
-  console.log(`Matching messages: ${count}`);
-}
+const printHelpAndExit = (): never => {
+  console.log(`Usage: pnpm count -- [options]
 
-function parseArgs(args: string[]): CountOptions {
+Options:
+  --week-start <date>    Claim week Sunday as YYYY-MM-DD. Defaults to last completed Sunday week.
+  --help                 Show this help.
+`);
+  process.exit(0);
+};
+
+const parseArgs = (args: string[]): CountOptions => {
   const options: CountOptions = {};
 
   for (let i = 0; i < args.length; i += 1) {
@@ -43,25 +50,21 @@ function parseArgs(args: string[]): CountOptions {
   }
 
   return options;
-}
+};
 
-function requiredValue(args: string[], index: number, flag: string): string {
-  const value = args[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.`);
-  }
-  return value;
-}
+const main = async (): Promise<void> => {
+  const options = parseArgs(process.argv.slice(2));
+  const week = options.weekStart
+    ? getWeekFromStart(options.weekStart)
+    : getLastCompletedSundayWeek();
+  const { count, query } = await countGmailMessages(week);
 
-function printHelpAndExit(): never {
-  console.log(`Usage: pnpm count -- [options]
-
-Options:
-  --week-start <date>    Claim week Sunday as YYYY-MM-DD. Defaults to last completed Sunday week.
-  --help                 Show this help.
-`);
-  process.exit(0);
-}
+  console.log(
+    `Claim week: ${week.claimWeekStart} through ${week.claimWeekEnd}`,
+  );
+  console.log(`Gmail query: ${query}`);
+  console.log(`Matching messages: ${count}`);
+};
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);

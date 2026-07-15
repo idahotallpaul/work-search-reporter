@@ -1,11 +1,59 @@
 import { DEFAULT_ENRICH_MODEL } from "../config";
-import type { EnrichedEmployer, ExtractedAction, WorkSearchRow } from "../types";
+import type {
+  EnrichedEmployer,
+  ExtractedAction,
+  WorkSearchRow,
+} from "../types";
 import { createResponse } from "./client";
 
-export async function enrichEmployer(
+const emptyEnrichment = (notes: string): EnrichedEmployer => {
+  return {
+    employer_website: "",
+    employer_contact: "",
+    mailing_address_line_1: "",
+    mailing_address_line_2: "",
+    city: "",
+    state: "",
+    zip: "",
+    source_url: "",
+    confidence: 0,
+    notes,
+  };
+};
+
+const enrichmentSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    employer_website: { type: "string" },
+    employer_contact: { type: "string" },
+    mailing_address_line_1: { type: "string" },
+    mailing_address_line_2: { type: "string" },
+    city: { type: "string" },
+    state: { type: "string" },
+    zip: { type: "string" },
+    source_url: { type: "string" },
+    confidence: { type: "number" },
+    notes: { type: "string" },
+  },
+  required: [
+    "employer_website",
+    "employer_contact",
+    "mailing_address_line_1",
+    "mailing_address_line_2",
+    "city",
+    "state",
+    "zip",
+    "source_url",
+    "confidence",
+    "notes",
+  ],
+};
+
+export const enrichEmployer = async (
   action: ExtractedAction,
   apiKey?: string,
-): Promise<EnrichedEmployer> {
+): Promise<EnrichedEmployer> => {
   if (!apiKey || !action.company || action.confidence < 0.5) {
     return emptyEnrichment("Needs lookup");
   }
@@ -46,12 +94,12 @@ export async function enrichEmployer(
       `OpenAI company data lookup failed. ${(error as Error).message}`,
     );
   }
-}
+};
 
-export async function enrichEmployerRow(
+export const enrichEmployerRow = async (
   row: WorkSearchRow,
   apiKey?: string,
-): Promise<EnrichedEmployer> {
+): Promise<EnrichedEmployer> => {
   return enrichEmployer(
     {
       source_message_id: row.source_subject,
@@ -66,48 +114,4 @@ export async function enrichEmployerRow(
     },
     apiKey,
   );
-}
-
-function emptyEnrichment(notes: string): EnrichedEmployer {
-  return {
-    employer_website: "",
-    employer_contact: "",
-    mailing_address_line_1: "",
-    mailing_address_line_2: "",
-    city: "",
-    state: "",
-    zip: "",
-    source_url: "",
-    confidence: 0,
-    notes,
-  };
-}
-
-const enrichmentSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    employer_website: { type: "string" },
-    employer_contact: { type: "string" },
-    mailing_address_line_1: { type: "string" },
-    mailing_address_line_2: { type: "string" },
-    city: { type: "string" },
-    state: { type: "string" },
-    zip: { type: "string" },
-    source_url: { type: "string" },
-    confidence: { type: "number" },
-    notes: { type: "string" },
-  },
-  required: [
-    "employer_website",
-    "employer_contact",
-    "mailing_address_line_1",
-    "mailing_address_line_2",
-    "city",
-    "state",
-    "zip",
-    "source_url",
-    "confidence",
-    "notes",
-  ],
 };

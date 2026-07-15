@@ -23,4 +23,6 @@ src/**/*.js.map
 
 # OS/editor noise
 .DS_Store
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json

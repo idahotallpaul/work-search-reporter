@@ -55,7 +55,8 @@ const actions: MenuAction[] = [
   {
     id: "count",
     label: "Count matching emails",
-    description: "Show how many confirmation-like emails Gmail finds for the week.",
+    description:
+      "Show how many confirmation-like emails Gmail finds for the week.",
     command: "src/countCli.ts",
     usesWeek: true,
   },
@@ -69,7 +70,8 @@ const actions: MenuAction[] = [
   {
     id: "enrich",
     label: "Fetch missing company data",
-    description: "Fill missing website, contact, and address fields in the CSV.",
+    description:
+      "Fill missing website, contact, and address fields in the CSV.",
     command: "src/enrichCli.ts",
   },
   {
@@ -80,45 +82,10 @@ const actions: MenuAction[] = [
   },
 ];
 
-async function main(): Promise<void> {
-  const prompts = await loadPrompts();
-  const { intro, outro } = prompts;
-
-  intro("Work Search Reporter");
-  let weekStart: string | undefined;
-
-  while (true) {
-    const action = await promptForAction(prompts, weekStart);
-    if (!action) return;
-    if (action.exit) {
-      outro("Done.");
-      return;
-    }
-
-    if (action.setWeek) {
-      weekStart = await promptForWeekStart(prompts, weekStart);
-      continue;
-    }
-    if (!action.command) {
-      outro("Done.");
-      return;
-    }
-
-    const args = [...(action.args || [])];
-    if (action.usesWeek && weekStart) {
-      args.push("--week-start", weekStart);
-    }
-
-    console.log("");
-    await runTsNode(action.command, args);
-    console.log("");
-  }
-}
-
-async function promptForAction(
+const promptForAction = async (
   prompts: Prompts,
   weekStart: string | undefined,
-): Promise<MenuAction | undefined> {
+): Promise<MenuAction | undefined> => {
   const { cancel, isCancel, note, select } = prompts;
   const activeWeek = weekStart
     ? getWeekFromStart(weekStart)
@@ -145,52 +112,11 @@ async function promptForAction(
     return undefined;
   }
   return actions.find((action) => action.id === selected);
-}
+};
 
-async function promptForWeekStart(
-  prompts: Prompts,
-  currentWeekStart: string | undefined,
-): Promise<string | undefined> {
-  const { cancel, isCancel, note, select, text } = prompts;
-  const defaultWeek = getLastCompletedSundayWeek();
-  const activeWeekStart = currentWeekStart ?? defaultWeek.claimWeekStart;
-  const selected = await select({
-    message: "Choose claim week",
-    options: buildWeekChoices(activeWeekStart),
-    initialValue: activeWeekStart,
-  });
-
-  if (isCancel(selected)) {
-    cancel("Canceled.");
-    return currentWeekStart;
-  }
-
-  if (selected === "back") return currentWeekStart;
-  if (selected !== "manual") {
-    const week = getWeekFromStart(selected);
-    note(`${week.claimWeekStart} through ${week.claimWeekEnd}`, "Using claim week");
-    return week.claimWeekStart;
-  }
-
-  const answer = await text({
-    message: "Enter a Sunday start date",
-    placeholder: defaultWeek.claimWeekStart,
-  });
-
-  if (isCancel(answer)) {
-    cancel("Canceled.");
-    return currentWeekStart;
-  }
-
-  const weekStart = answer.trim();
-  if (!weekStart) return currentWeekStart;
-
-  const week = getWeekFromStart(weekStart);
-  note(`${week.claimWeekStart} through ${week.claimWeekEnd}`, "Using claim week");
-  return week.claimWeekStart;
-}
-
-function buildWeekChoices(activeWeekStart: string | undefined): WeekChoice[] {
+const buildWeekChoices = (
+  activeWeekStart: string | undefined,
+): WeekChoice[] => {
   const currentWeek = getCurrentSundayWeek();
   const lastCompletedWeek = getLastCompletedSundayWeek();
   const weekStarts = new Set<string>([
@@ -237,13 +163,62 @@ function buildWeekChoices(activeWeekStart: string | undefined): WeekChoice[] {
   );
 
   return choices;
-}
+};
 
-async function loadPrompts(): Promise<Prompts> {
+const promptForWeekStart = async (
+  prompts: Prompts,
+  currentWeekStart: string | undefined,
+): Promise<string | undefined> => {
+  const { cancel, isCancel, note, select, text } = prompts;
+  const defaultWeek = getLastCompletedSundayWeek();
+  const activeWeekStart = currentWeekStart ?? defaultWeek.claimWeekStart;
+  const selected = await select({
+    message: "Choose claim week",
+    options: buildWeekChoices(activeWeekStart),
+    initialValue: activeWeekStart,
+  });
+
+  if (isCancel(selected)) {
+    cancel("Canceled.");
+    return currentWeekStart;
+  }
+
+  if (selected === "back") return currentWeekStart;
+  if (selected !== "manual") {
+    const week = getWeekFromStart(selected);
+    note(
+      `${week.claimWeekStart} through ${week.claimWeekEnd}`,
+      "Using claim week",
+    );
+    return week.claimWeekStart;
+  }
+
+  const answer = await text({
+    message: "Enter a Sunday start date",
+    placeholder: defaultWeek.claimWeekStart,
+  });
+
+  if (isCancel(answer)) {
+    cancel("Canceled.");
+    return currentWeekStart;
+  }
+
+  const weekStart = answer.trim();
+  if (!weekStart) return currentWeekStart;
+
+  const week = getWeekFromStart(weekStart);
+  note(
+    `${week.claimWeekStart} through ${week.claimWeekEnd}`,
+    "Using claim week",
+  );
+  return week.claimWeekStart;
+};
+
+const loadPrompts = async (): Promise<Prompts> => {
   return import("@clack/prompts") as Promise<Prompts>;
-}
+};
 
-function runTsNode(scriptPath: string, args: string[]): Promise<void> {
+const runTsNode = (scriptPath: string, args: string[]): Promise<void> => {
   const tsNodePath = path.resolve(
     __dirname,
     "..",
@@ -271,7 +246,42 @@ function runTsNode(scriptPath: string, args: string[]): Promise<void> {
       }
     });
   });
-}
+};
+
+const main = async (): Promise<void> => {
+  const prompts = await loadPrompts();
+  const { intro, outro } = prompts;
+
+  intro("Work Search Reporter");
+  let weekStart: string | undefined;
+
+  while (true) {
+    const action = await promptForAction(prompts, weekStart);
+    if (!action) return;
+    if (action.exit) {
+      outro("Done.");
+      return;
+    }
+
+    if (action.setWeek) {
+      weekStart = await promptForWeekStart(prompts, weekStart);
+      continue;
+    }
+    if (!action.command) {
+      outro("Done.");
+      return;
+    }
+
+    const args = [...(action.args || [])];
+    if (action.usesWeek && weekStart) {
+      args.push("--week-start", weekStart);
+    }
+
+    console.log("");
+    await runTsNode(action.command, args);
+    console.log("");
+  }
+};
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);

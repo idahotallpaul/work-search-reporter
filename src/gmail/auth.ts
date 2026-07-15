@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
+
 import { google } from "googleapis";
 
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
@@ -19,48 +20,22 @@ const DEFAULT_TOKEN_PATH = path.resolve(
   "gmail-token.json",
 );
 
-type GoogleOAuthCredentials = {
-  installed?: OAuthClientConfig;
-  web?: OAuthClientConfig;
-};
-
 type OAuthClientConfig = {
   client_id: string;
   client_secret: string;
   redirect_uris?: string[];
 };
 
+type GoogleOAuthCredentials = {
+  installed?: OAuthClientConfig;
+  web?: OAuthClientConfig;
+};
+
 type GoogleOAuth2Client = InstanceType<typeof google.auth.OAuth2>;
 
-export async function getGmailAuthClient(): Promise<GoogleOAuth2Client> {
-  const credentialsPath =
-    process.env.GOOGLE_OAUTH_CLIENT_PATH || DEFAULT_CREDENTIALS_PATH;
-  const tokenPath = process.env.GMAIL_TOKEN_PATH || DEFAULT_TOKEN_PATH;
-  const config = await readOAuthClientConfig(credentialsPath);
-  const oauth2Client = new google.auth.OAuth2({
-    clientId: config.client_id,
-    clientSecret: config.client_secret,
-  });
-
-  const cachedToken = await readJsonIfExists(tokenPath);
-  if (cachedToken) {
-    oauth2Client.setCredentials(cachedToken);
-    return oauth2Client;
-  }
-
-  const tokens = await runLocalOAuthFlow(oauth2Client, config);
-  await fs.mkdir(path.dirname(tokenPath), { recursive: true });
-  await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  oauth2Client.setCredentials(tokens);
-  return oauth2Client;
-}
-
-async function readOAuthClientConfig(
+const readOAuthClientConfig = async (
   credentialsPath: string,
-): Promise<OAuthClientConfig> {
+): Promise<OAuthClientConfig> => {
   try {
     const raw = await fs.readFile(credentialsPath, "utf8");
     const parsed = JSON.parse(raw) as GoogleOAuthCredentials;
@@ -78,11 +53,11 @@ async function readOAuthClientConfig(
       ].join(" "),
     );
   }
-}
+};
 
-async function readJsonIfExists(
+const readJsonIfExists = async (
   filePath: string,
-): Promise<Record<string, unknown> | undefined> {
+): Promise<Record<string, unknown> | undefined> => {
   try {
     const raw = await fs.readFile(filePath, "utf8");
     return JSON.parse(raw) as Record<string, unknown>;
@@ -90,12 +65,12 @@ async function readJsonIfExists(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
   }
-}
+};
 
-async function runLocalOAuthFlow(
+const runLocalOAuthFlow = async (
   oauth2Client: GoogleOAuth2Client,
   config: OAuthClientConfig,
-): Promise<Record<string, unknown>> {
+): Promise<Record<string, unknown>> => {
   const baseRedirect = new URL(config.redirect_uris?.[0] || "http://localhost");
   if (baseRedirect.hostname !== "localhost") {
     throw new Error(
@@ -155,8 +130,36 @@ async function runLocalOAuthFlow(
         scope: [GMAIL_READONLY_SCOPE],
       });
 
-      console.log(`Open this URL to authorize Gmail read-only access:\n${authUrl}`);
+      console.log(
+        `Open this URL to authorize Gmail read-only access:\n${authUrl}`,
+      );
       execFile("open", [authUrl], () => undefined);
     });
   });
-}
+};
+
+export const getGmailAuthClient = async (): Promise<GoogleOAuth2Client> => {
+  const credentialsPath =
+    process.env.GOOGLE_OAUTH_CLIENT_PATH || DEFAULT_CREDENTIALS_PATH;
+  const tokenPath = process.env.GMAIL_TOKEN_PATH || DEFAULT_TOKEN_PATH;
+  const config = await readOAuthClientConfig(credentialsPath);
+  const oauth2Client = new google.auth.OAuth2({
+    clientId: config.client_id,
+    clientSecret: config.client_secret,
+  });
+
+  const cachedToken = await readJsonIfExists(tokenPath);
+  if (cachedToken) {
+    oauth2Client.setCredentials(cachedToken);
+    return oauth2Client;
+  }
+
+  const tokens = await runLocalOAuthFlow(oauth2Client, config);
+  await fs.mkdir(path.dirname(tokenPath), { recursive: true });
+  await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  oauth2Client.setCredentials(tokens);
+  return oauth2Client;
+};

@@ -7,17 +7,17 @@ export type CliOptions = {
   weekStart?: string;
 };
 
+export type DateParts = {
+  year: number;
+  month: number;
+  day: number;
+};
+
 export type WeekWindow = {
   claimWeekStart: string;
   claimWeekEnd: string;
   queryStart: DateParts;
   queryEndExclusive: DateParts;
-};
-
-export type DateParts = {
-  year: number;
-  month: number;
-  day: number;
 };
 
 export type MailMessage = {

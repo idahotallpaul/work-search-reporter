@@ -1,0 +1,10 @@
+engine biome(1.0)
+language js(typescript)
+
+JsFunctionDeclaration() as $function where {
+  register_diagnostic(
+    span = $function,
+    message = "Use a const arrow function instead of a function declaration.",
+    severity = "error"
+  )
+}

@@ -149,6 +149,7 @@ Fetches application confirmation emails and adds them to the CSV.
 
 | Option | Value | Default | Description |
 |---|---|---|---|
+| `--dry-run` | none | off | Print application confirmations without writing the CSV. |
 | `--week-start` | `YYYY-MM-DD` | last completed Sunday | Claim week start date. |
 | `--batch-size` | positive integer | `10` | Number of candidate email snippets sent per OpenAI extraction request. |
 | `--limit` | positive integer | no limit | Testing only. Do not use for real weekly collection. |
@@ -171,6 +172,7 @@ Options:
 
 | Option | Value | Default | Description |
 |---|---|---|---|
+| `--dry-run` | none | off | Print the updated CSV to the terminal without writing it. |
 | `--limit` | positive integer | no limit | Fetch company data for only the first `n` matching entries. Useful for testing. |
 | `--concurrency` | positive integer | `2` | Number of company data lookups to run in parallel. |
 | `--output` | file path | `outputs/idaho_work_search_log.csv` | CSV path to read/update. |
@@ -183,6 +185,21 @@ pnpm enrich
 pnpm enrich -- --limit 2
 pnpm enrich -- --concurrency 1
 ```
+
+## Code Quality
+
+Biome handles formatting, import organization, and linting. TypeScript still handles typechecking.
+
+```sh
+pnpm check
+pnpm check:fix
+```
+
+`pnpm check` runs Biome and TypeScript. `pnpm check:fix` formats files, organizes imports, and applies safe Biome fixes. Use `pnpm typecheck` only when you want the TypeScript compiler check by itself.
+
+Biome also enforces arrow functions and flags invalid use before declaration, which guards against hoisting mistakes after replacing function declarations with `const` arrow functions. Source files are ordered so top-level declarations appear before their first use.
+
+The shared VS Code settings use Biome as the default formatter, format on save, organize imports on save, and apply safe Biome fixes on save.
 
 ## Notes
 

@@ -1,3 +1,4 @@
+import { normalizeForKey, truncate } from "./text";
 import type {
   CandidateMessage,
   EnrichedEmployer,
@@ -5,17 +6,26 @@ import type {
   WeekWindow,
   WorkSearchRow,
 } from "./types";
-import { normalizeForKey, truncate } from "./text";
 
-export function toWorkSearchRow(
+const normalizeSourceDate = (value: string): string => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString();
+};
+
+export const toWorkSearchRow = (
   week: WeekWindow,
   candidate: CandidateMessage,
   action: ExtractedAction,
   enrichment: EnrichedEmployer,
-): WorkSearchRow {
+): WorkSearchRow => {
   const combinedConfidence = Math.max(
     0,
-    Math.min(1, (action.confidence || 0) * 0.75 + (enrichment.confidence || 0) * 0.25),
+    Math.min(
+      1,
+      (action.confidence || 0) * 0.75 + (enrichment.confidence || 0) * 0.25,
+    ),
   );
 
   const notes = [action.notes, enrichment.notes]
@@ -38,7 +48,9 @@ export function toWorkSearchRow(
     zip: enrichment.zip,
     source_subject: candidate.subject,
     source_sender: candidate.sender,
-    source_date: normalizeSourceDate(candidate.dateReceived || candidate.dateSent),
+    source_date: normalizeSourceDate(
+      candidate.dateReceived || candidate.dateSent,
+    ),
     evidence_excerpt: truncate(
       action.evidence_excerpt || candidate.evidenceExcerpt,
       700,
@@ -47,12 +59,23 @@ export function toWorkSearchRow(
     confidence: combinedConfidence.toFixed(2),
     notes,
   };
-}
+};
 
-export function filterNewRows(
+export const rowDedupeKey = (row: WorkSearchRow): string => {
+  const sourceKey = normalizeForKey(
+    `${row.source_subject}|${row.source_sender}|${row.source_date}`,
+  );
+  if (sourceKey) return sourceKey;
+
+  return normalizeForKey(
+    `${row.claim_week_start}|${row.action_date}|${row.company}|${row.job_title}|${row.action_type}`,
+  );
+};
+
+export const filterNewRows = (
   existingRows: readonly WorkSearchRow[],
   candidateRows: readonly WorkSearchRow[],
-): WorkSearchRow[] {
+): WorkSearchRow[] => {
   const existingKeys = new Set(existingRows.map(rowDedupeKey));
   const seenThisRun = new Set<string>();
   const newRows: WorkSearchRow[] = [];
@@ -65,22 +88,4 @@ export function filterNewRows(
   }
 
   return newRows;
-}
-
-export function rowDedupeKey(row: WorkSearchRow): string {
-  const sourceKey = normalizeForKey(
-    `${row.source_subject}|${row.source_sender}|${row.source_date}`,
-  );
-  if (sourceKey) return sourceKey;
-
-  return normalizeForKey(
-    `${row.claim_week_start}|${row.action_date}|${row.company}|${row.job_title}|${row.action_type}`,
-  );
-}
-
-function normalizeSourceDate(value: string): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toISOString();
-}
+};

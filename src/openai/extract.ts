@@ -1,23 +1,133 @@
 import { DEFAULT_EXTRACT_MODEL } from "../config";
-import type { CandidateMessage, ExtractedAction, WeekWindow } from "../types";
 import { senderDisplayName, truncate } from "../text";
+import type { CandidateMessage, ExtractedAction, WeekWindow } from "../types";
 import { createResponse } from "./client";
 
 type BatchExtractionResponse = {
   actions: ExtractedAction[];
 };
 
-export async function extractActions(
+const actionProperties = {
+  source_message_id: { type: "string" },
+  action_found: { type: "boolean" },
+  action_date: { type: "string" },
+  action_type: { type: "string" },
+  company: { type: "string" },
+  job_title: { type: "string" },
+  evidence_excerpt: { type: "string" },
+  confidence: { type: "number" },
+  notes: { type: "string" },
+} as const;
+
+const actionRequired = [
+  "source_message_id",
+  "action_found",
+  "action_date",
+  "action_type",
+  "company",
+  "job_title",
+  "evidence_excerpt",
+  "confidence",
+  "notes",
+] as const;
+
+const batchExtractionSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: actionProperties,
+        required: actionRequired,
+      },
+    },
+  },
+  required: ["actions"],
+};
+
+export const candidateSourceId = (candidate: CandidateMessage): string => {
+  return (
+    candidate.sourceMessageId || candidate.messageId || candidate.dateReceived
+  );
+};
+
+const inferCompany = (candidate: CandidateMessage): string => {
+  const subjectPatterns = [
+    /thank you for applying to\s+(.+?)(?:[.!|:-]|$)/i,
+    /application (?:to|with|at)\s+(.+?)(?:[.!|:-]|$)/i,
+    /your application (?:to|with|at)\s+(.+?)(?:[.!|:-]|$)/i,
+  ];
+
+  for (const pattern of subjectPatterns) {
+    const match = pattern.exec(candidate.subject);
+    if (match?.[1]) return truncate(match[1], 120);
+  }
+
+  return truncate(senderDisplayName(candidate.sender), 120);
+};
+
+const inferJobTitle = (subject: string, excerpt: string): string => {
+  const text = `${subject}. ${excerpt}`;
+  const patterns = [
+    /(?:for|position of|role of)\s+([A-Z][^.!|:\n]{2,80})/i,
+    /job title[:\s]+([^.!|:\n]{2,80})/i,
+    /position[:\s]+([^.!|:\n]{2,80})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (match?.[1]) return truncate(match[1], 120);
+  }
+
+  return "";
+};
+
+const normalizeMailDate = (value: string): string => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return date.toISOString().slice(0, 10);
+};
+
+const localExtractAction = (candidate: CandidateMessage): ExtractedAction => {
+  const subject = candidate.subject;
+  const excerpt = candidate.evidenceExcerpt;
+  const actionType = "Job application confirmation";
+  const company = inferCompany(candidate);
+  const jobTitle = inferJobTitle(subject, excerpt);
+
+  return {
+    source_message_id: candidateSourceId(candidate),
+    action_found: true,
+    action_date: normalizeMailDate(
+      candidate.dateReceived || candidate.dateSent,
+    ),
+    action_type: actionType,
+    company,
+    job_title: jobTitle,
+    evidence_excerpt: truncate(excerpt, 700),
+    confidence: candidate.localScore,
+    notes: `Local heuristic extraction. Matched: ${candidate.matchedTerms.join(", ")}`,
+  };
+};
+
+export const extractActions = async (
   candidates: readonly CandidateMessage[],
   week: WeekWindow,
   batchSize: number,
   apiKey?: string,
-): Promise<Map<string, ExtractedAction>> {
+): Promise<Map<string, ExtractedAction>> => {
   const actionsById = new Map<string, ExtractedAction>();
 
   if (!apiKey) {
     for (const candidate of candidates) {
-      actionsById.set(candidateSourceId(candidate), localExtractAction(candidate));
+      actionsById.set(
+        candidateSourceId(candidate),
+        localExtractAction(candidate),
+      );
     }
     return actionsById;
   }
@@ -77,117 +187,4 @@ export async function extractActions(
   }
 
   return actionsById;
-}
-
-function localExtractAction(candidate: CandidateMessage): ExtractedAction {
-  const subject = candidate.subject;
-  const excerpt = candidate.evidenceExcerpt;
-  const combined = `${subject} ${excerpt}`;
-  const actionType = "Job application confirmation";
-  const company = inferCompany(candidate);
-  const jobTitle = inferJobTitle(subject, excerpt);
-
-  return {
-    source_message_id: candidateSourceId(candidate),
-    action_found: true,
-    action_date: normalizeMailDate(candidate.dateReceived || candidate.dateSent),
-    action_type: actionType,
-    company,
-    job_title: jobTitle,
-    evidence_excerpt: truncate(excerpt, 700),
-    confidence: candidate.localScore,
-    notes: `Local heuristic extraction. Matched: ${candidate.matchedTerms.join(", ")}`,
-  };
-}
-
-export function candidateSourceId(candidate: CandidateMessage): string {
-  return candidate.sourceMessageId || candidate.messageId || candidate.dateReceived;
-}
-
-function inferActionType(text: string): string {
-  const lower = text.toLowerCase();
-  if (lower.includes("interview")) return "Interview";
-  if (lower.includes("assessment") || lower.includes("test")) return "Assessment/test";
-  if (lower.includes("resume")) return "Resume submission";
-  if (lower.includes("cover letter")) return "Cover letter submission";
-  return "Application";
-}
-
-function inferCompany(candidate: CandidateMessage): string {
-  const subjectPatterns = [
-    /thank you for applying to\s+(.+?)(?:[.!|:-]|$)/i,
-    /application (?:to|with|at)\s+(.+?)(?:[.!|:-]|$)/i,
-    /your application (?:to|with|at)\s+(.+?)(?:[.!|:-]|$)/i,
-  ];
-
-  for (const pattern of subjectPatterns) {
-    const match = pattern.exec(candidate.subject);
-    if (match?.[1]) return truncate(match[1], 120);
-  }
-
-  return truncate(senderDisplayName(candidate.sender), 120);
-}
-
-function inferJobTitle(subject: string, excerpt: string): string {
-  const text = `${subject}. ${excerpt}`;
-  const patterns = [
-    /(?:for|position of|role of)\s+([A-Z][^.!|:\n]{2,80})/i,
-    /job title[:\s]+([^.!|:\n]{2,80})/i,
-    /position[:\s]+([^.!|:\n]{2,80})/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(text);
-    if (match?.[1]) return truncate(match[1], 120);
-  }
-
-  return "";
-}
-
-function normalizeMailDate(value: string): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  return date.toISOString().slice(0, 10);
-}
-
-const actionProperties = {
-  source_message_id: { type: "string" },
-  action_found: { type: "boolean" },
-  action_date: { type: "string" },
-  action_type: { type: "string" },
-  company: { type: "string" },
-  job_title: { type: "string" },
-  evidence_excerpt: { type: "string" },
-  confidence: { type: "number" },
-  notes: { type: "string" },
-} as const;
-
-const actionRequired = [
-  "source_message_id",
-  "action_found",
-  "action_date",
-  "action_type",
-  "company",
-  "job_title",
-  "evidence_excerpt",
-  "confidence",
-  "notes",
-] as const;
-
-const batchExtractionSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    actions: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: actionProperties,
-        required: actionRequired,
-      },
-    },
-  },
-  required: ["actions"],
 };
