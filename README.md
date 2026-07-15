@@ -24,17 +24,90 @@ flowchart TD
 
 ## Setup
 
+This app needs two external services:
+
+| Service | Used for | Required setup |
+|---|---|---|
+| Google Gmail API | Read matching messages from your Gmail account. | A Google Cloud project with Gmail API enabled and a desktop OAuth client JSON file. |
+| OpenAI API | Classify application-confirmation emails, extract structured fields, and fetch missing company data from the web. | An OpenAI API key stored in `.env`. |
+
+The app stores credentials and generated data locally. `.env`, `google-oauth-client.json`, `cache/`, `outputs/`, and `backups/` are ignored by git.
+
+### Google Gmail API
+
+The Gmail API lets the app search and read email from the account you authorize. It is used by:
+
+- `Count matching emails`
+- `Fetch application confirmation emails`
+
 The first Gmail run needs a Google OAuth desktop-client JSON file at:
 
 `/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/google-oauth-client.json`
 
-Create it in Google Cloud by enabling the Gmail API, creating an OAuth client for a desktop app, downloading the JSON, and saving it with that filename. The first run opens a browser authorization page and stores a read-only Gmail token in `cache/gmail-token.json`.
+To set it up:
 
-OpenAI is configured with `.env`:
+1. Create or choose a Google Cloud project.
+2. Enable the [Gmail API](https://developers.google.com/workspace/gmail/api/quickstart/nodejs#enable_the_api).
+3. Configure the OAuth consent screen in Google Auth Platform.
+4. Create an OAuth client with application type `Desktop app`.
+5. Download the client JSON and save it as `google-oauth-client.json` in this project folder.
+
+On first use, the app opens a browser authorization page. Sign in with the Gmail account you want to search, then approve access. The app requests the Gmail readonly scope, `https://www.googleapis.com/auth/gmail.readonly`, which Google describes as permission to view Gmail messages and settings. The resulting token is stored locally at `cache/gmail-token.json` so you do not need to authorize every run.
+
+The app does not ask Gmail for send, modify, compose, or delete permissions.
+
+Useful Google docs:
+
+- [Gmail API Node.js quickstart](https://developers.google.com/workspace/gmail/api/quickstart/nodejs)
+- [OAuth 2.0 for desktop apps](https://developers.google.com/identity/protocols/oauth2/native-app)
+- [Google API OAuth scopes](https://developers.google.com/identity/protocols/oauth2/scopes)
+
+### OpenAI API
+
+The OpenAI API is used by:
+
+- `Fetch application confirmation emails`, to decide whether a candidate email is actually an application confirmation and to extract structured fields like company, job title, action date, and evidence excerpt.
+- `Fetch missing company data`, to use OpenAI's hosted web search tool to find employer website, contact, mailing address, and source URL data.
+
+Create an API key in the [OpenAI API dashboard](https://platform.openai.com/api-keys), then create `.env` from `.env.example`:
 
 ```sh
+cp .env.example .env
+```
+
+Add your key:
+
+```env
 OPENAI_API_KEY="sk-..."
 ```
+
+The app loads the key from `.env` only. Do not commit `.env`; it is ignored by git. OpenAI recommends keeping API keys secret and loading them from environment variables or server-side key management.
+
+Optional model overrides can also be set in `.env`:
+
+```env
+OPENAI_EXTRACT_MODEL="gpt-5.6"
+OPENAI_ENRICH_MODEL="gpt-5.6"
+```
+
+If `OPENAI_API_KEY` is missing, email collection falls back to rough local heuristics. Fetching missing company data requires OpenAI because it depends on web search.
+
+Useful OpenAI docs:
+
+- [API authentication](https://developers.openai.com/api/reference/overview#authentication)
+- [Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
+- [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [Web search tool](https://developers.openai.com/api/docs/guides/tools-web-search)
+
+### What Leaves Your Machine
+
+The CSV, backups, Gmail token, OAuth client JSON, and `.env` stay local. The app sends limited data to external services:
+
+- Google receives Gmail API requests for the selected claim-week search query and matching message reads.
+- OpenAI extraction receives only candidate email metadata and a trimmed evidence excerpt.
+- OpenAI web search receives employer/job details from CSV rows that are missing company data.
+
+The app never logs into Idaho's portal and never submits anything.
 
 ## Services Used
 
