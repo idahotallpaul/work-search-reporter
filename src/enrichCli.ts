@@ -4,23 +4,34 @@ import dotenv from "dotenv";
 
 import { DEFAULT_OUTPUT_PATH } from "./config";
 import { readRows, writeRowsWithBackup } from "./csv/csv";
+import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
 import { enrichEmployerRow } from "./openai/enrich";
-import type { EnrichedEmployer, WorkSearchRow } from "./types";
+import type { EnrichedEmployer, WeekWindow, WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
-// Determines whether a CSV row still needs employer lookup.
+// Triggers lookup only when a report-critical mailing address field is missing.
 const shouldEnrich = (row: WorkSearchRow): boolean => {
   if (!row.company.trim()) return false;
 
-  return [
-    row.employer_website,
-    row.employer_contact,
-    row.mailing_address_line_1,
-    row.city,
-    row.state,
-    row.zip,
-  ].some((value) => !value.trim());
+  return [row.mailing_address_line_1, row.city, row.state, row.zip].some(
+    (value) => !value.trim(),
+  );
+};
+
+// Keeps enrichment scoped to the claim week selected in the menu.
+const rowIsInWeek = (row: WorkSearchRow, week: WeekWindow): boolean => {
+  if (
+    row.claim_week_start === week.claimWeekStart &&
+    row.claim_week_end === week.claimWeekEnd
+  ) {
+    return true;
+  }
+
+  return (
+    row.action_date >= week.claimWeekStart &&
+    row.action_date <= week.claimWeekEnd
+  );
 };
 
 // Keeps the strongest confidence score after enrichment.
@@ -88,7 +99,7 @@ const assertNoArgs = (): void => {
   }
 };
 
-// Fills missing employer fields for all eligible rows in the CSV.
+// Fills missing employer fields for eligible rows in the active claim week.
 const main = async (): Promise<void> => {
   assertNoArgs();
 
@@ -99,6 +110,10 @@ const main = async (): Promise<void> => {
     );
   }
 
+  const activeWeek = process.env.WORK_SEARCH_WEEK_START
+    ? getWeekFromStart(process.env.WORK_SEARCH_WEEK_START)
+    : getLastCompletedSundayWeek();
+
   const rows = await readRows(DEFAULT_OUTPUT_PATH);
   if (rows.length === 0) {
     console.log(`No CSV entries found at ${DEFAULT_OUTPUT_PATH}.`);
@@ -107,15 +122,17 @@ const main = async (): Promise<void> => {
 
   const targets = rows
     .map((row, index) => ({ row, index }))
-    .filter(({ row }) => shouldEnrich(row));
+    .filter(({ row }) => rowIsInWeek(row, activeWeek) && shouldEnrich(row));
 
   if (targets.length === 0) {
-    console.log("No entries with missing company data found.");
+    console.log(
+      `No entries with missing company data found for ${activeWeek.claimWeekStart} through ${activeWeek.claimWeekEnd}.`,
+    );
     return;
   }
 
   console.log(
-    `Fetching missing company data for ${targets.length} entr${targets.length === 1 ? "y" : "ies"} with concurrency 2.`,
+    `Fetching missing company data for ${targets.length} entr${targets.length === 1 ? "y" : "ies"} in ${activeWeek.claimWeekStart} through ${activeWeek.claimWeekEnd} with concurrency 2.`,
   );
 
   const updatedRows = [...rows];

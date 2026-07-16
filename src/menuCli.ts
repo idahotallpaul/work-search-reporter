@@ -77,9 +77,9 @@ const actions: MenuAction[] = [
   {
     id: "enrich",
     label: "Fetch missing company data",
-    description:
-      "Fill missing website, contact, and address fields in the CSV.",
+    description: "Fill missing mailing addresses for active-week rows.",
     command: "src/enrichCli.ts",
+    usesWeek: true,
   },
   {
     id: "exit",

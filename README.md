@@ -10,7 +10,7 @@ Local TypeScript CLI for fetching Gmail application confirmation emails, importi
 pnpm start
 ```
 
-The interactive menu is the app entrypoint. It lets you change the active claim week, count matching emails, fetch application confirmation emails, fetch Jobright applied jobs, or fetch missing company data.
+The interactive menu is the app entrypoint. It lets you change the active claim week, count matching emails, fetch application confirmation emails, fetch Jobright applied jobs, or fetch missing company data for the active week.
 
 ```mermaid
 flowchart TD
@@ -69,7 +69,7 @@ Useful Google docs:
 The OpenAI API is used by:
 
 - `Fetch application confirmation emails`, to decide whether a candidate email is actually an application confirmation and to extract structured fields like company, job title, action date, and evidence excerpt.
-- `Fetch missing company data`, to use OpenAI's hosted web search tool to find employer website, contact, mailing address, and source URL data.
+- `Fetch missing company data`, to use OpenAI's hosted web search tool to find missing employer mailing addresses for active-week CSV rows. The response may also fill website, contact, source URL, confidence, and notes when available.
 
 Create an API key in the [OpenAI API dashboard](https://platform.openai.com/api-keys), then create `.env` from `.env.example`:
 
@@ -121,7 +121,7 @@ The CSV, backups, Gmail token, OAuth client JSON, and `.env` stay local. The app
 
 - Google receives Gmail API requests for the selected claim-week search query and matching message reads.
 - OpenAI extraction receives only candidate email metadata and a trimmed evidence excerpt.
-- OpenAI web search receives employer/job details from CSV rows that are missing company data.
+- OpenAI web search receives employer/job details from active-week CSV rows that are missing report-critical mailing address data.
 - Jobright receives normal browser traffic from the dedicated Playwright Chrome profile when the Jobright import runs.
 
 The app never logs into Idaho's portal and never submits anything.
@@ -133,7 +133,7 @@ The app never logs into Idaho's portal and never submits anything.
 | `Count matching emails` | yes | no | no | no | no |
 | `Fetch application confirmation emails` | yes | no | yes | no | add application confirmation emails |
 | `Fetch Jobright applied jobs` | no | yes | no | no | add new rows and review possible duplicates |
-| `Fetch missing company data` | no | no | no | yes | fill missing company data |
+| `Fetch missing company data` | no | no | no | yes | fill missing mailing addresses for active-week rows |
 
 ## Workflows
 
@@ -209,14 +209,14 @@ flowchart LR
 
 ### Fetch Missing Company Data
 
-Use this after review. It reads the CSV, finds entries with missing company data, and uses OpenAI web search to fill website, contact, address, and source URL fields.
+Use this after review. It reads the CSV, finds active-week entries with missing report-critical address data, and uses OpenAI web search to fill mailing address fields. The OpenAI response can also fill website, contact, source URL, confidence, and notes when available, but missing website or contact fields alone do not trigger a lookup. It does not sweep older incomplete rows unless you change the active week first.
 
 ```mermaid
 flowchart TD
   A["Fetch missing company data"] --> B["Read CSV"]
-  B --> C["Find entries with missing company data"]
+  B --> C["Find active-week entries with missing address data"]
   C --> D["OpenAI web search per company"]
-  D --> E["Fill website/contact/address/source URL"]
+  D --> E["Fill mailing address and any extra returned details"]
   E --> F["Backup existing CSV"]
   F --> G["Rewrite CSV with missing company data filled"]
 ```
@@ -259,7 +259,7 @@ The shared VS Code settings use Biome as the default formatter, format on save, 
 
 - Gmail is used only for read-only email search and retrieval.
 - OpenAI extraction is used by `collect` to reject non-confirmation emails.
-- OpenAI web search is used only by `enrich`.
+- OpenAI web search is used only by `enrich` for active-week rows.
 - Jobright import is used only by `jobright` and stores its browser session under `cache/jobright-browser`.
 - `collect` does not fetch missing company data.
 - The tool never logs into Idaho's portal and never submits anything.
