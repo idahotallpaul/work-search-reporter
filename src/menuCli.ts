@@ -67,6 +67,13 @@ const actions: MenuAction[] = [
     usesWeek: true,
   },
   {
+    id: "jobright",
+    label: "Fetch Jobright applied jobs",
+    description: "Read Jobright's Applied tab and reconcile rows into the CSV.",
+    command: "src/jobrightCli.ts",
+    usesWeek: true,
+  },
+  {
     id: "enrich",
     label: "Fetch missing company data",
     description:

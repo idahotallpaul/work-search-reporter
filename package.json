@@ -2,7 +2,7 @@
   "name": "work-search-reporter",
   "version": "1.0.0",
   "private": true,
-  "description": "Fetch Gmail application confirmation emails and missing company data for an Idaho work-search CSV.",
+  "description": "Fetch Gmail confirmations, Jobright applied jobs, and missing company data for an Idaho work-search CSV.",
   "packageManager": "pnpm@11.7.0",
   "scripts": {
     "check": "biome check . && tsc --noEmit --project tsconfig.json",
@@ -10,6 +10,7 @@
     "collect": "ts-node --project tsconfig.json src/cli.ts",
     "count": "ts-node --project tsconfig.json src/countCli.ts",
     "enrich": "ts-node --project tsconfig.json src/enrichCli.ts",
+    "jobright": "ts-node --project tsconfig.json src/jobrightCli.ts",
     "start": "ts-node --project tsconfig.json src/menuCli.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
@@ -19,7 +20,8 @@
   "dependencies": {
     "@clack/prompts": "^1.7.0",
     "dotenv": "^17.4.2",
-    "googleapis": "^173.0.0"
+    "googleapis": "^173.0.0",
+    "playwright-core": "^1.61.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
