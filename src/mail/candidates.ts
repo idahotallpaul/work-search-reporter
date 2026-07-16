@@ -2,6 +2,7 @@ import { CANDIDATE_TERMS } from "../config";
 import { normalizeWhitespace, truncate } from "../text";
 import type { CandidateMessage, MailMessage } from "../types";
 
+// Pulls a short body snippet around the matched application evidence.
 const findEvidenceExcerpt = (
   message: MailMessage,
   matchedTerms: readonly string[],
@@ -16,12 +17,14 @@ const findEvidenceExcerpt = (
     return truncate(`${message.subject}. ${cleanedBody}`, 700);
   }
 
+  // Keep the excerpt centered near evidence, not at the top of long emails.
   const index = lowerBody.indexOf(firstTerm);
   const start = Math.max(0, index - 220);
   const end = Math.min(cleanedBody.length, index + 480);
   return truncate(cleanedBody.slice(start, end), 700);
 };
 
+// Removes repeated Gmail hits before extraction runs.
 const dedupeCandidates = (
   candidates: CandidateMessage[],
 ): CandidateMessage[] => {
@@ -41,12 +44,14 @@ const dedupeCandidates = (
   return deduped;
 };
 
+// Finds messages that are worth sending to extraction.
 export const findCandidateMessages = (
   messages: MailMessage[],
 ): CandidateMessage[] => {
   const candidates: CandidateMessage[] = [];
 
   for (const message of messages) {
+    // This is only the first pass; OpenAI/local extraction confirms later.
     const haystack =
       `${message.subject}\n${message.sender}\n${message.body}`.toLowerCase();
     const matchedTerms = CANDIDATE_TERMS.filter((term) =>
@@ -56,6 +61,7 @@ export const findCandidateMessages = (
     if (matchedTerms.length === 0) continue;
 
     const evidenceExcerpt = findEvidenceExcerpt(message, matchedTerms);
+    // More matched terms make a local-only draft slightly more credible.
     const localScore = Math.min(0.95, 0.35 + matchedTerms.length * 0.12);
 
     candidates.push({

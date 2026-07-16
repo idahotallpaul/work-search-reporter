@@ -8,6 +8,7 @@ type CollectGmailArgs = {
   maxResults?: number;
 };
 
+// Builds the broad Gmail query for one claim week.
 export const buildGmailQuery = (week: WeekWindow): string => {
   const after = week.claimWeekStart.replace(/-/g, "/");
   const before =
@@ -22,10 +23,12 @@ export const buildGmailQuery = (week: WeekWindow): string => {
     `before:${before}`,
     "-in:sent",
     "-in:trash",
+    // Broad terms prevent missed confirmations; extraction filters false hits.
     "(application OR applied OR applying OR applicant OR candidacy OR candidate)",
   ].join(" ");
 };
 
+// Lists all matching Gmail message IDs, following pagination.
 const listMessageIds = async (
   gmail: gmail_v1.Gmail,
   query: string,
@@ -56,6 +59,7 @@ const listMessageIds = async (
   return maxResults === undefined ? ids : ids.slice(0, maxResults);
 };
 
+// Counts matches without downloading full message bodies.
 export const countGmailMessages = async (
   week: WeekWindow,
 ): Promise<{
@@ -73,6 +77,7 @@ export const countGmailMessages = async (
   };
 };
 
+// Reads one named Gmail header from a message payload.
 const header = (
   headers: gmail_v1.Schema$MessagePartHeader[],
   name: string,
@@ -92,9 +97,11 @@ const decodeBase64Url = (value: string): string => {
   return Buffer.from(normalized, "base64").toString("utf8");
 };
 
+// Extracts readable text from Gmail's nested MIME payload.
 const extractBody = (part?: gmail_v1.Schema$MessagePart): string => {
   if (!part) return "";
 
+  // Gmail messages can be nested multipart trees; collect readable leaves.
   if (part.body?.data && isReadableMime(part.mimeType)) {
     return decodeBase64Url(part.body.data);
   }
@@ -103,6 +110,7 @@ const extractBody = (part?: gmail_v1.Schema$MessagePart): string => {
   return childText.join("\n\n");
 };
 
+// Converts one Gmail API message into the app's simpler mail shape.
 const toMailMessage = (
   message: gmail_v1.Schema$Message,
   account: string,
@@ -116,6 +124,7 @@ const toMailMessage = (
     ? new Date(Number(message.internalDate)).toISOString()
     : "";
 
+  // Prefer Gmail's internal received timestamp when available.
   return {
     sourceMessageId: message.id || "",
     messageId: messageId || message.id || "",
@@ -130,6 +139,7 @@ const toMailMessage = (
   };
 };
 
+// Fetches every Gmail message body that matches the week query.
 export const collectGmailMessages = async ({
   week,
   maxResults,

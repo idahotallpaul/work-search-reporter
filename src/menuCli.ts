@@ -81,6 +81,7 @@ const actions: MenuAction[] = [
   },
 ];
 
+// Shows the main menu and returns the selected action.
 const promptForAction = async (
   prompts: Prompts,
   weekStart: string | undefined,
@@ -113,6 +114,7 @@ const promptForAction = async (
   return actions.find((action) => action.id === selected);
 };
 
+// Builds the selectable Sunday-start weeks shown in the week picker.
 const buildWeekChoices = (
   activeWeekStart: string | undefined,
 ): WeekChoice[] => {
@@ -124,6 +126,7 @@ const buildWeekChoices = (
   ]);
   if (activeWeekStart) weekStarts.add(activeWeekStart);
 
+  // Keep enough recent Sundays visible for normal weekly reporting.
   let previousStart = parseIsoLocalDate(lastCompletedWeek.claimWeekStart);
   for (let i = 0; i < 8; i += 1) {
     weekStarts.add(formatLocalDate(previousStart));
@@ -164,6 +167,7 @@ const buildWeekChoices = (
   return choices;
 };
 
+// Prompts for a new claim week while preserving the old selection on cancel.
 const promptForWeekStart = async (
   prompts: Prompts,
   currentWeekStart: string | undefined,
@@ -213,10 +217,12 @@ const promptForWeekStart = async (
   return week.claimWeekStart;
 };
 
+// Loads Clack lazily so the command modules stay non-interactive.
 const loadPrompts = async (): Promise<Prompts> => {
   return import("@clack/prompts") as Promise<Prompts>;
 };
 
+// Runs one internal command script from the menu process.
 const runTsNode = (
   scriptPath: string,
   env: NodeJS.ProcessEnv = {},
@@ -235,6 +241,7 @@ const runTsNode = (
       ["--project", "tsconfig.json", scriptPath],
       {
         cwd: path.resolve(__dirname, ".."),
+        // The selected week is internal state, not a user-facing CLI flag.
         env: { ...process.env, ...env },
         stdio: "inherit",
       },
@@ -251,6 +258,7 @@ const runTsNode = (
   });
 };
 
+// Keeps the menu open until the user exits or cancels.
 const main = async (): Promise<void> => {
   const prompts = await loadPrompts();
   const { intro, outro } = prompts;

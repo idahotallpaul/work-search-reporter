@@ -7,12 +7,14 @@ import { countGmailMessages } from "./gmail/messages";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
+// Blocks old flag-based usage so weekly runs go through the menu.
 const assertNoArgs = (): void => {
   if (process.argv.length > 2) {
     throw new Error("This command does not take flags. Run pnpm start.");
   }
 };
 
+// Counts broad Gmail matches for the active claim week without reading bodies.
 const main = async (): Promise<void> => {
   assertNoArgs();
 

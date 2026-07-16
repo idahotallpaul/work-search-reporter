@@ -9,7 +9,9 @@ export const formatLocalDate = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+// Trims a Date down to the user's local calendar day.
 const startOfLocalDay = (date: Date): Date => {
+  // Claim weeks are local-calendar dates, not UTC instants.
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 };
 
@@ -25,7 +27,9 @@ const toDateParts = (date: Date): DateParts => {
   };
 };
 
+// Returns the most recent fully completed Sunday-Saturday claim week.
 export const getLastCompletedSundayWeek = (now = new Date()): WeekWindow => {
+  // Idaho weekly reporting uses the last complete Sunday-Saturday week.
   const today = startOfLocalDay(now);
   const currentDow = today.getDay();
   const currentSunday = addDays(today, -currentDow);
@@ -49,11 +53,13 @@ export const parseIsoLocalDate = (value: string): Date => {
   return new Date(Number(year), Number(month) - 1, Number(day));
 };
 
+// Builds all date fields needed from a Sunday claim-week start date.
 export const getWeekFromStart = (startIsoDate: string): WeekWindow => {
   const start = parseIsoLocalDate(startIsoDate);
   const endExclusive = addDays(start, 7);
   const endInclusive = addDays(start, 6);
 
+  // Gmail's before: query is exclusive, while the report label is inclusive.
   return {
     claimWeekStart: formatLocalDate(start),
     claimWeekEnd: formatLocalDate(endInclusive),
@@ -62,6 +68,7 @@ export const getWeekFromStart = (startIsoDate: string): WeekWindow => {
   };
 };
 
+// Returns the Sunday-Saturday week that contains today.
 export const getCurrentSundayWeek = (now = new Date()): WeekWindow => {
   const today = startOfLocalDay(now);
   const currentSunday = addDays(today, -today.getDay());

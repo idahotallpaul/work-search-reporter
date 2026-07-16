@@ -2,6 +2,7 @@ export const normalizeWhitespace = (value: string): string => {
   return value.replace(/\s+/g, " ").trim();
 };
 
+// Produces a stable lowercase comparison key for dedupe.
 export const normalizeForKey = (value: string): string => {
   return normalizeWhitespace(value)
     .toLowerCase()
@@ -15,6 +16,7 @@ export const truncate = (value: string, maxLength: number): string => {
   return `${cleaned.slice(0, maxLength - 1).trimEnd()}...`;
 };
 
+// Pulls the address portion out of common "Name <email>" sender strings.
 export const extractEmailAddress = (sender: string): string => {
   const angleMatch = /<([^>]+)>/.exec(sender);
   if (angleMatch) return angleMatch[1].toLowerCase();
@@ -22,6 +24,7 @@ export const extractEmailAddress = (sender: string): string => {
   return emailMatch ? emailMatch[0].toLowerCase() : "";
 };
 
+// Returns a readable sender name, falling back to the email local part.
 export const senderDisplayName = (sender: string): string => {
   const withoutEmail = sender.replace(/<[^>]+>/g, "").replace(/["']/g, "");
   const cleaned = normalizeWhitespace(withoutEmail);

@@ -6,6 +6,7 @@ import type {
 } from "../types";
 import { createResponse } from "./client";
 
+// Returns an empty enrichment payload with a useful note.
 const emptyEnrichment = (notes: string): EnrichedEmployer => {
   return {
     employer_website: "",
@@ -50,15 +51,18 @@ const enrichmentSchema = {
   ],
 };
 
+// Looks up employer website, contact, address, and source URL.
 export const enrichEmployer = async (
   action: ExtractedAction,
   apiKey?: string,
 ): Promise<EnrichedEmployer> => {
+  // Avoid spending web-search calls on low-confidence or incomplete rows.
   if (!apiKey || !action.company || action.confidence < 0.5) {
     return emptyEnrichment("Needs lookup");
   }
 
   try {
+    // Force web search so employer details come from current public sources.
     return await createResponse<EnrichedEmployer>(
       {
         model: DEFAULT_ENRICH_MODEL,
@@ -96,10 +100,12 @@ export const enrichEmployer = async (
   }
 };
 
+// Adapts an existing CSV row into the enrichment request shape.
 export const enrichEmployerRow = async (
   row: WorkSearchRow,
   apiKey?: string,
 ): Promise<EnrichedEmployer> => {
+  // Reuse the action-based enrichment path for rows already stored in CSV.
   return enrichEmployer(
     {
       source_message_id: row.source_subject,

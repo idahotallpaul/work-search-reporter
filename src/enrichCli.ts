@@ -9,6 +9,7 @@ import type { EnrichedEmployer, WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
+// Determines whether a CSV row still needs employer lookup.
 const shouldEnrich = (row: WorkSearchRow): boolean => {
   if (!row.company.trim()) return false;
 
@@ -22,6 +23,7 @@ const shouldEnrich = (row: WorkSearchRow): boolean => {
   ].some((value) => !value.trim());
 };
 
+// Keeps the strongest confidence score after enrichment.
 const mergeConfidence = (
   existing: string,
   enrichmentConfidence: number,
@@ -32,6 +34,7 @@ const mergeConfidence = (
   return Math.max(current, enrichmentConfidence).toFixed(2);
 };
 
+// Merges discovered employer details into one existing CSV row.
 const applyEnrichment = (
   row: WorkSearchRow,
   enrichment: EnrichedEmployer,
@@ -57,6 +60,7 @@ const applyEnrichment = (
   };
 };
 
+// Runs async work over a list without launching every lookup at once.
 const runWithConcurrency = async <T>(
   items: readonly T[],
   concurrency: number,
@@ -77,12 +81,14 @@ const runWithConcurrency = async <T>(
   await Promise.all(workers);
 };
 
+// Blocks old flag-based usage so weekly runs go through the menu.
 const assertNoArgs = (): void => {
   if (process.argv.length > 2) {
     throw new Error("This command does not take flags. Run pnpm start.");
   }
 };
 
+// Fills missing employer fields for all eligible rows in the CSV.
 const main = async (): Promise<void> => {
   assertNoArgs();
 

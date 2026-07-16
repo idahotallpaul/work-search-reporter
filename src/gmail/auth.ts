@@ -33,6 +33,7 @@ type GoogleOAuthCredentials = {
 
 type GoogleOAuth2Client = InstanceType<typeof google.auth.OAuth2>;
 
+// Reads the downloaded Google OAuth client JSON.
 const readOAuthClientConfig = async (
   credentialsPath: string,
 ): Promise<OAuthClientConfig> => {
@@ -55,6 +56,7 @@ const readOAuthClientConfig = async (
   }
 };
 
+// Reads a JSON file when it exists, returning undefined on first run.
 const readJsonIfExists = async (
   filePath: string,
 ): Promise<Record<string, unknown> | undefined> => {
@@ -67,10 +69,12 @@ const readJsonIfExists = async (
   }
 };
 
+// Runs the one-time browser authorization flow for Gmail.
 const runLocalOAuthFlow = async (
   oauth2Client: GoogleOAuth2Client,
   config: OAuthClientConfig,
 ): Promise<Record<string, unknown>> => {
+  // Desktop OAuth returns to a temporary localhost server on this machine.
   const baseRedirect = new URL(config.redirect_uris?.[0] || "http://localhost");
   if (baseRedirect.hostname !== "localhost") {
     throw new Error(
@@ -127,6 +131,7 @@ const runLocalOAuthFlow = async (
         redirect_uri: baseRedirect.toString(),
         access_type: "offline",
         prompt: "consent",
+        // Readonly is enough for search/reporting and avoids mail changes.
         scope: [GMAIL_READONLY_SCOPE],
       });
 
@@ -138,6 +143,7 @@ const runLocalOAuthFlow = async (
   });
 };
 
+// Returns an authorized Gmail client, reusing the local token when possible.
 export const getGmailAuthClient = async (): Promise<GoogleOAuth2Client> => {
   const credentialsPath =
     process.env.GOOGLE_OAUTH_CLIENT_PATH || DEFAULT_CREDENTIALS_PATH;
@@ -150,12 +156,14 @@ export const getGmailAuthClient = async (): Promise<GoogleOAuth2Client> => {
 
   const cachedToken = await readJsonIfExists(tokenPath);
   if (cachedToken) {
+    // Reuse the local refresh token so normal runs do not prompt again.
     oauth2Client.setCredentials(cachedToken);
     return oauth2Client;
   }
 
   const tokens = await runLocalOAuthFlow(oauth2Client, config);
   await fs.mkdir(path.dirname(tokenPath), { recursive: true });
+  // Keep the token readable only by the local user account.
   await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), {
     encoding: "utf8",
     mode: 0o600,

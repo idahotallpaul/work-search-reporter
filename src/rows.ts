@@ -14,12 +14,14 @@ const normalizeSourceDate = (value: string): string => {
   return date.toISOString();
 };
 
+// Combines extraction and enrichment output into one portal-ready CSV row.
 export const toWorkSearchRow = (
   week: WeekWindow,
   candidate: CandidateMessage,
   action: ExtractedAction,
   enrichment: EnrichedEmployer,
 ): WorkSearchRow => {
+  // Extraction confidence matters more than enrichment confidence.
   const combinedConfidence = Math.max(
     0,
     Math.min(
@@ -61,7 +63,9 @@ export const toWorkSearchRow = (
   };
 };
 
+// Builds the duplicate key used across existing and newly collected rows.
 export const rowDedupeKey = (row: WorkSearchRow): string => {
+  // Source email identity is preferred because company/title can be edited.
   const sourceKey = normalizeForKey(
     `${row.source_subject}|${row.source_sender}|${row.source_date}`,
   );
@@ -72,6 +76,7 @@ export const rowDedupeKey = (row: WorkSearchRow): string => {
   );
 };
 
+// Keeps only rows not already present in the CSV or this collection run.
 export const filterNewRows = (
   existingRows: readonly WorkSearchRow[],
   candidateRows: readonly WorkSearchRow[],

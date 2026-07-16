@@ -13,6 +13,7 @@ import type { WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
+// Creates blank company fields for rows that still need enrichment.
 const emptyEnrichment = () => {
   return {
     employer_website: "",
@@ -28,12 +29,14 @@ const emptyEnrichment = () => {
   };
 };
 
+// Blocks old flag-based usage so weekly runs go through the menu.
 const assertNoArgs = (): void => {
   if (process.argv.length > 2) {
     throw new Error("This command does not take flags. Run pnpm start.");
   }
 };
 
+// Fetches candidate Gmail messages and appends confirmed applications to CSV.
 const main = async (): Promise<void> => {
   assertNoArgs();
 
@@ -51,6 +54,8 @@ const main = async (): Promise<void> => {
 
   console.log(`Read ${messages.length} matching message(s) from Gmail.`);
 
+  // Gmail query results are intentionally broad. OpenAI/local extraction does
+  // the final confirmation-vs-noise decision before any row is written.
   const candidates = findCandidateMessages(messages);
 
   console.log(`Found ${candidates.length} candidate work-search messages.`);
@@ -79,6 +84,7 @@ const main = async (): Promise<void> => {
   }
 
   const existingRows = await readRows(DEFAULT_OUTPUT_PATH);
+  // Preserve manual CSV edits by reading the current file before appending.
   const newRows = filterNewRows(existingRows, rows);
 
   if (newRows.length === 0) {

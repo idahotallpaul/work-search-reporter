@@ -6,6 +6,7 @@ import type { WorkSearchRow } from "../types";
 
 type CsvColumn = (typeof CSV_COLUMNS)[number];
 
+// Parses CSV records while respecting quoted commas and newlines.
 const parseRecords = (content: string): string[][] => {
   const records: string[][] = [];
   let record: string[] = [];
@@ -57,6 +58,7 @@ const emptyRow = (): WorkSearchRow => {
   return row as WorkSearchRow;
 };
 
+// Converts CSV text into typed rows using the header row as the map.
 const parseCsv = (content: string): WorkSearchRow[] => {
   const records = parseRecords(content);
   if (records.length === 0) return [];
@@ -79,6 +81,7 @@ const parseCsv = (content: string): WorkSearchRow[] => {
     });
 };
 
+// Reads the local ledger, treating a missing file as an empty ledger.
 export const readRows = async (csvPath: string): Promise<WorkSearchRow[]> => {
   try {
     const content = await fs.readFile(csvPath, "utf8");
@@ -94,6 +97,7 @@ const escapeCsv = (value: string): string => {
   return `"${value.replace(/"/g, '""')}"`;
 };
 
+// Serializes rows using the fixed Idaho reporting column order.
 export const stringifyCsv = (rows: WorkSearchRow[]): string => {
   const header = CSV_COLUMNS.join(",");
   const lines = rows.map((row) =>
@@ -115,6 +119,7 @@ const timestampForFile = (): string => {
   return new Date().toISOString().replace(/[:.]/g, "-");
 };
 
+// Appends new rows after backing up the current CSV.
 export const appendRowsWithBackup = async (
   csvPath: string,
   backupDir: string,
@@ -125,6 +130,7 @@ export const appendRowsWithBackup = async (
 
   const existing = await fileExists(csvPath);
   if (existing) {
+    // Always backup before appending so manual spreadsheet edits are recoverable.
     const backupPath = path.join(
       backupDir,
       `idaho_work_search_log_${timestampForFile()}.csv`,
@@ -137,6 +143,7 @@ export const appendRowsWithBackup = async (
   await fs.writeFile(csvPath, stringifyCsv(nextRows), "utf8");
 };
 
+// Rewrites the CSV after backing up the current file.
 export const writeRowsWithBackup = async (
   csvPath: string,
   backupDir: string,
@@ -147,6 +154,7 @@ export const writeRowsWithBackup = async (
 
   const existing = await fileExists(csvPath);
   if (existing) {
+    // Enrichment rewrites the file, so backup first.
     const backupPath = path.join(
       backupDir,
       `idaho_work_search_log_${timestampForFile()}.csv`,

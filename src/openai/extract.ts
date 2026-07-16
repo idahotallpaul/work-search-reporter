@@ -48,12 +48,15 @@ const batchExtractionSchema = {
   required: ["actions"],
 };
 
+// Returns the best available identifier for correlating extraction results.
 export const candidateSourceId = (candidate: CandidateMessage): string => {
+  // Prefer stable Gmail IDs so batch responses map back to the right email.
   return (
     candidate.sourceMessageId || candidate.messageId || candidate.dateReceived
   );
 };
 
+// Guesses a company name for local-only fallback extraction.
 const inferCompany = (candidate: CandidateMessage): string => {
   const subjectPatterns = [
     /thank you for applying to\s+(.+?)(?:[.!|:-]|$)/i,
@@ -69,6 +72,7 @@ const inferCompany = (candidate: CandidateMessage): string => {
   return truncate(senderDisplayName(candidate.sender), 120);
 };
 
+// Guesses a job title from subject/body text for local-only fallback.
 const inferJobTitle = (subject: string, excerpt: string): string => {
   const text = `${subject}. ${excerpt}`;
   const patterns = [
@@ -85,6 +89,7 @@ const inferJobTitle = (subject: string, excerpt: string): string => {
   return "";
 };
 
+// Normalizes mail dates to the date format expected in the CSV.
 const normalizeMailDate = (value: string): string => {
   if (!value) return "";
   const date = new Date(value);
@@ -92,7 +97,9 @@ const normalizeMailDate = (value: string): string => {
   return date.toISOString().slice(0, 10);
 };
 
+// Builds a provisional action when OpenAI extraction is unavailable.
 const localExtractAction = (candidate: CandidateMessage): ExtractedAction => {
+  // This fallback keeps collection usable without OpenAI, but with lower trust.
   const subject = candidate.subject;
   const excerpt = candidate.evidenceExcerpt;
   const actionType = "Job application confirmation";
@@ -114,6 +121,7 @@ const localExtractAction = (candidate: CandidateMessage): ExtractedAction => {
   };
 };
 
+// Extracts one structured application result per candidate email.
 export const extractActions = async (
   candidates: readonly CandidateMessage[],
   week: WeekWindow,
@@ -123,6 +131,7 @@ export const extractActions = async (
   const actionsById = new Map<string, ExtractedAction>();
 
   if (!apiKey) {
+    // Offline mode treats local candidates as provisional confirmations.
     for (const candidate of candidates) {
       actionsById.set(
         candidateSourceId(candidate),
@@ -135,6 +144,7 @@ export const extractActions = async (
   for (let start = 0; start < candidates.length; start += batchSize) {
     const batch = candidates.slice(start, start + batchSize);
     try {
+      // Send only metadata plus a trimmed excerpt, never full mailbox contents.
       const response = await createResponse<BatchExtractionResponse>(
         {
           model: DEFAULT_EXTRACT_MODEL,
@@ -177,6 +187,7 @@ export const extractActions = async (
         actionsById.set(action.source_message_id, action);
       }
     } catch (error) {
+      // A batch failure should not prevent the weekly CSV from being drafted.
       for (const candidate of batch) {
         const fallback = localExtractAction(candidate);
         fallback.notes = `OpenAI batch extraction failed; used local fallback. ${(error as Error).message}`;

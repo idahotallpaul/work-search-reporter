@@ -10,9 +10,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+// Pulls text out of the Responses API response shapes this app uses.
 const extractOutputText = (response: Record<string, unknown>): string => {
   if (typeof response.output_text === "string") return response.output_text;
 
+  // Some Responses API payloads require walking output content manually.
   const output = response.output;
   if (!Array.isArray(output)) return "";
 
@@ -31,6 +33,7 @@ const extractOutputText = (response: Record<string, unknown>): string => {
   return chunks.join("");
 };
 
+// Sends a raw Responses API request and parses the JSON output.
 export const createResponse = async <T>(
   request: ResponsesRequest,
   apiKey: string,
@@ -59,5 +62,6 @@ export const createResponse = async <T>(
     );
   }
 
+  // Callers supply strict JSON schemas, so a parse failure should be loud.
   return JSON.parse(text) as T;
 };
