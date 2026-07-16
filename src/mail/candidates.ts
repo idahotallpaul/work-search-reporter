@@ -51,7 +51,7 @@ export const findCandidateMessages = (
   const candidates: CandidateMessage[] = [];
 
   for (const message of messages) {
-    // This is only the first pass; OpenAI/local extraction confirms later.
+    // This is only the first pass; OpenAI confirms later.
     const haystack =
       `${message.subject}\n${message.sender}\n${message.body}`.toLowerCase();
     const matchedTerms = CANDIDATE_TERMS.filter((term) =>
@@ -61,14 +61,10 @@ export const findCandidateMessages = (
     if (matchedTerms.length === 0) continue;
 
     const evidenceExcerpt = findEvidenceExcerpt(message, matchedTerms);
-    // More matched terms make a local-only draft slightly more credible.
-    const localScore = Math.min(0.95, 0.35 + matchedTerms.length * 0.12);
 
     candidates.push({
       ...message,
       evidenceExcerpt,
-      localScore,
-      matchedTerms,
     });
   }
 

@@ -26,12 +26,10 @@ export type MailMessage = {
 
 export type CandidateMessage = MailMessage & {
   evidenceExcerpt: string;
-  localScore: number;
-  matchedTerms: string[];
 };
 
 export type ExtractedAction = {
-  source_message_id?: string;
+  source_message_id: string;
   action_found: boolean;
   action_date: string;
   action_type: string;

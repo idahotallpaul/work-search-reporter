@@ -90,7 +90,7 @@ OPENAI_EXTRACT_MODEL="gpt-5.6"
 OPENAI_ENRICH_MODEL="gpt-5.6"
 ```
 
-If `OPENAI_API_KEY` is missing, email collection falls back to rough local heuristics. Fetching missing company data requires OpenAI because it depends on web search.
+`OPENAI_API_KEY` is required for both fetching application confirmation emails and fetching missing company data.
 
 Useful OpenAI docs:
 

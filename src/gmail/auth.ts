@@ -23,12 +23,11 @@ const DEFAULT_TOKEN_PATH = path.resolve(
 type OAuthClientConfig = {
   client_id: string;
   client_secret: string;
-  redirect_uris?: string[];
+  redirect_uris: string[];
 };
 
 type GoogleOAuthCredentials = {
-  installed?: OAuthClientConfig;
-  web?: OAuthClientConfig;
+  installed: OAuthClientConfig;
 };
 
 type GoogleOAuth2Client = InstanceType<typeof google.auth.OAuth2>;
@@ -40,9 +39,13 @@ const readOAuthClientConfig = async (
   try {
     const raw = await fs.readFile(credentialsPath, "utf8");
     const parsed = JSON.parse(raw) as GoogleOAuthCredentials;
-    const config = parsed.installed || parsed.web;
-    if (!config?.client_id || !config.client_secret) {
-      throw new Error("Missing client_id/client_secret.");
+    const config = parsed.installed;
+    if (
+      !config?.client_id ||
+      !config.client_secret ||
+      !config.redirect_uris[0]
+    ) {
+      throw new Error("Missing client_id/client_secret/redirect_uris.");
     }
     return config;
   } catch (error) {
@@ -75,7 +78,7 @@ const runLocalOAuthFlow = async (
   config: OAuthClientConfig,
 ): Promise<Record<string, unknown>> => {
   // Desktop OAuth returns to a temporary localhost server on this machine.
-  const baseRedirect = new URL(config.redirect_uris?.[0] || "http://localhost");
+  const baseRedirect = new URL(config.redirect_uris[0]);
   if (baseRedirect.hostname !== "localhost") {
     throw new Error(
       `Expected a localhost redirect URI in google-oauth-client.json, got ${baseRedirect.toString()}`,
@@ -145,16 +148,13 @@ const runLocalOAuthFlow = async (
 
 // Returns an authorized Gmail client, reusing the local token when possible.
 export const getGmailAuthClient = async (): Promise<GoogleOAuth2Client> => {
-  const credentialsPath =
-    process.env.GOOGLE_OAUTH_CLIENT_PATH || DEFAULT_CREDENTIALS_PATH;
-  const tokenPath = process.env.GMAIL_TOKEN_PATH || DEFAULT_TOKEN_PATH;
-  const config = await readOAuthClientConfig(credentialsPath);
+  const config = await readOAuthClientConfig(DEFAULT_CREDENTIALS_PATH);
   const oauth2Client = new google.auth.OAuth2({
     clientId: config.client_id,
     clientSecret: config.client_secret,
   });
 
-  const cachedToken = await readJsonIfExists(tokenPath);
+  const cachedToken = await readJsonIfExists(DEFAULT_TOKEN_PATH);
   if (cachedToken) {
     // Reuse the local refresh token so normal runs do not prompt again.
     oauth2Client.setCredentials(cachedToken);
@@ -162,9 +162,9 @@ export const getGmailAuthClient = async (): Promise<GoogleOAuth2Client> => {
   }
 
   const tokens = await runLocalOAuthFlow(oauth2Client, config);
-  await fs.mkdir(path.dirname(tokenPath), { recursive: true });
+  await fs.mkdir(path.dirname(DEFAULT_TOKEN_PATH), { recursive: true });
   // Keep the token readable only by the local user account.
-  await fs.writeFile(tokenPath, JSON.stringify(tokens, null, 2), {
+  await fs.writeFile(DEFAULT_TOKEN_PATH, JSON.stringify(tokens, null, 2), {
     encoding: "utf8",
     mode: 0o600,
   });

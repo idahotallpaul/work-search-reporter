@@ -6,22 +6,6 @@ import type {
 } from "../types";
 import { createResponse } from "./client";
 
-// Returns an empty enrichment payload with a useful note.
-const emptyEnrichment = (notes: string): EnrichedEmployer => {
-  return {
-    employer_website: "",
-    employer_contact: "",
-    mailing_address_line_1: "",
-    mailing_address_line_2: "",
-    city: "",
-    state: "",
-    zip: "",
-    source_url: "",
-    confidence: 0,
-    notes,
-  };
-};
-
 const enrichmentSchema = {
   type: "object",
   additionalProperties: false,
@@ -54,56 +38,51 @@ const enrichmentSchema = {
 // Looks up employer website, contact, address, and source URL.
 export const enrichEmployer = async (
   action: ExtractedAction,
-  apiKey?: string,
+  apiKey: string,
 ): Promise<EnrichedEmployer> => {
-  // Avoid spending web-search calls on low-confidence or incomplete rows.
-  if (!apiKey || !action.company || action.confidence < 0.5) {
-    return emptyEnrichment("Needs lookup");
+  if (!action.company) {
+    throw new Error(
+      "Cannot fetch missing company data without a company name.",
+    );
   }
 
-  try {
-    // Force web search so employer details come from current public sources.
-    return await createResponse<EnrichedEmployer>(
-      {
-        model: DEFAULT_ENRICH_MODEL,
-        input: [
-          {
-            role: "system",
-            content:
-              "Find employer contact details for a job-search report. Prefer the official employer website, careers page, or contact page. Do not use registered-agent addresses unless no better employer address is available. If uncertain, leave fields blank and explain in notes.",
-          },
-          {
-            role: "user",
-            content: JSON.stringify({
-              company: action.company,
-              job_title: action.job_title,
-            }),
-          },
-        ],
-        tools: [{ type: "web_search" }],
-        tool_choice: "required",
-        text: {
-          format: {
-            type: "json_schema",
-            name: "employer_enrichment",
-            strict: true,
-            schema: enrichmentSchema,
-          },
+  // Force web search so employer details come from current public sources.
+  return createResponse<EnrichedEmployer>(
+    {
+      model: DEFAULT_ENRICH_MODEL,
+      input: [
+        {
+          role: "system",
+          content:
+            "Find employer contact details for a job-search report. Prefer the official employer website, careers page, or contact page. Do not use registered-agent addresses unless no better employer address is available. If uncertain, leave fields blank and explain in notes.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            company: action.company,
+            job_title: action.job_title,
+          }),
+        },
+      ],
+      tools: [{ type: "web_search" }],
+      tool_choice: "required",
+      text: {
+        format: {
+          type: "json_schema",
+          name: "employer_enrichment",
+          strict: true,
+          schema: enrichmentSchema,
         },
       },
-      apiKey,
-    );
-  } catch (error) {
-    return emptyEnrichment(
-      `OpenAI company data lookup failed. ${(error as Error).message}`,
-    );
-  }
+    },
+    apiKey,
+  );
 };
 
 // Adapts an existing CSV row into the enrichment request shape.
 export const enrichEmployerRow = async (
   row: WorkSearchRow,
-  apiKey?: string,
+  apiKey: string,
 ): Promise<EnrichedEmployer> => {
   // Reuse the action-based enrichment path for rows already stored in CSV.
   return enrichEmployer(

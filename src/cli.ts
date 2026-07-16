@@ -54,20 +54,18 @@ const main = async (): Promise<void> => {
 
   console.log(`Read ${messages.length} matching message(s) from Gmail.`);
 
-  // Gmail query results are intentionally broad. OpenAI/local extraction does
-  // the final confirmation-vs-noise decision before any row is written.
+  // Gmail query results are intentionally broad; OpenAI does the final
+  // confirmation-vs-noise decision before any row is written.
   const candidates = findCandidateMessages(messages);
 
   console.log(`Found ${candidates.length} candidate work-search messages.`);
   if (!apiKey) {
-    console.log("OPENAI_API_KEY not set; using local extraction only.");
+    throw new Error(
+      "OPENAI_API_KEY is missing. Add it to .env before fetching application confirmation emails.",
+    );
   }
 
-  console.log(
-    apiKey
-      ? "Extracting candidates in batch(es) of 10."
-      : "Extracting candidates with local heuristics.",
-  );
+  console.log("Extracting candidates in batch(es) of 10.");
   const actionsById = await extractActions(candidates, week, 10, apiKey);
 
   const rows: WorkSearchRow[] = [];

@@ -5,7 +5,6 @@ import { getGmailAuthClient } from "./auth";
 
 type CollectGmailArgs = {
   week: WeekWindow;
-  maxResults?: number;
 };
 
 // Builds the broad Gmail query for one claim week.
@@ -32,19 +31,16 @@ export const buildGmailQuery = (week: WeekWindow): string => {
 const listMessageIds = async (
   gmail: gmail_v1.Gmail,
   query: string,
-  maxResults?: number,
 ): Promise<string[]> => {
   const ids: string[] = [];
   let pageToken: string | undefined;
 
   do {
-    const remaining =
-      maxResults === undefined ? 100 : Math.max(1, maxResults - ids.length);
     const response = await gmail.users.messages.list({
       userId: "me",
       q: query,
       includeSpamTrash: false,
-      maxResults: Math.min(100, remaining),
+      maxResults: 100,
       pageToken,
     });
 
@@ -54,9 +50,9 @@ const listMessageIds = async (
         .filter((id): id is string => Boolean(id)),
     );
     pageToken = response.data.nextPageToken || undefined;
-  } while (pageToken && (maxResults === undefined || ids.length < maxResults));
+  } while (pageToken);
 
-  return maxResults === undefined ? ids : ids.slice(0, maxResults);
+  return ids;
 };
 
 // Counts matches without downloading full message bodies.
@@ -142,7 +138,6 @@ const toMailMessage = (
 // Fetches every Gmail message body that matches the week query.
 export const collectGmailMessages = async ({
   week,
-  maxResults,
 }: CollectGmailArgs): Promise<MailMessage[]> => {
   const auth = await getGmailAuthClient();
   const gmail = google.gmail({ version: "v1", auth });
@@ -151,7 +146,7 @@ export const collectGmailMessages = async ({
   const query = buildGmailQuery(week);
   console.log(`Gmail query: ${query}`);
 
-  const ids = await listMessageIds(gmail, query, maxResults);
+  const ids = await listMessageIds(gmail, query);
   const messages: MailMessage[] = [];
 
   for (const id of ids) {
