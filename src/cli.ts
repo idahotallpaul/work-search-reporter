@@ -75,10 +75,9 @@ const main = async (): Promise<void> => {
     );
 
     const action = actionsById.get(candidateSourceId(candidate));
-    if (!action) continue;
-    if (!action.action_found) continue;
-
-    rows.push(toWorkSearchRow(week, candidate, action, emptyEnrichment()));
+    if (action?.action_found) {
+      rows.push(toWorkSearchRow(week, candidate, action, emptyEnrichment()));
+    }
   }
 
   const existingRows = await readRows(DEFAULT_OUTPUT_PATH);

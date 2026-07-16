@@ -158,42 +158,41 @@ const reviewProposedRows = async (
       droppedIndexes.add(proposal.rowIndex);
       ignoredRows.push(proposal.row);
       ignored += 1;
-      continue;
-    }
-
-    note(
-      formatProposedRow(proposal),
-      `Possible duplicate ${index + 1} of ${conflicts.length}`,
-    );
-
-    const answer = await select({
-      message: "How should this possible duplicate be handled?",
-      options: reviewOptionsForProposal(),
-    });
-
-    if (isCancel(answer) || answer === "cancel") {
-      cancel("Canceled. CSV was not changed.");
-      throw new Error("Jobright review canceled.");
-    }
-
-    if (answer === "update-existing" && proposal.match) {
-      rows[proposal.match.rowIndex] = updateExistingFromJobright(
-        rows[proposal.match.rowIndex],
-        proposal,
+    } else {
+      note(
+        formatProposedRow(proposal),
+        `Possible duplicate ${index + 1} of ${conflicts.length}`,
       );
-      droppedIndexes.add(proposal.rowIndex);
-      updatedExisting += 1;
-    }
-    if (answer === "ignore") {
-      droppedIndexes.add(proposal.rowIndex);
-      ignoredRows.push(proposal.row);
-      ignored += 1;
-    }
-    if (answer === "ignore-all") {
-      droppedIndexes.add(proposal.rowIndex);
-      ignoredRows.push(proposal.row);
-      ignored += 1;
-      ignoreRemaining = true;
+
+      const answer = await select({
+        message: "How should this possible duplicate be handled?",
+        options: reviewOptionsForProposal(),
+      });
+
+      if (isCancel(answer) || answer === "cancel") {
+        cancel("Canceled. CSV was not changed.");
+        throw new Error("Jobright review canceled.");
+      }
+
+      if (answer === "update-existing" && proposal.match) {
+        rows[proposal.match.rowIndex] = updateExistingFromJobright(
+          rows[proposal.match.rowIndex],
+          proposal,
+        );
+        droppedIndexes.add(proposal.rowIndex);
+        updatedExisting += 1;
+      }
+      if (answer === "ignore") {
+        droppedIndexes.add(proposal.rowIndex);
+        ignoredRows.push(proposal.row);
+        ignored += 1;
+      }
+      if (answer === "ignore-all") {
+        droppedIndexes.add(proposal.rowIndex);
+        ignoredRows.push(proposal.row);
+        ignored += 1;
+        ignoreRemaining = true;
+      }
     }
   }
 

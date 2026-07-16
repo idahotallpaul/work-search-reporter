@@ -254,43 +254,41 @@ export const reconcileJobrightJobs = (
       } else {
         result.unchanged += 1;
       }
-      continue;
+    } else {
+      const conflictIndex = findConflictIndex(rows, job, week);
+      if (conflictIndex >= 0) {
+        const existing = rows[conflictIndex];
+        const row = toJobrightRow(
+          job,
+          week,
+          `${REVIEW_PREFIX}: may match existing CSV row "${existing.job_title || existing.source_subject}" for ${existing.company || "unknown company"} on ${existing.action_date || job.appliedDate}. Imported from Jobright Applied tab.`,
+        );
+        rows.push(row);
+        result.proposedRows.push({
+          kind: "conflict",
+          match: {
+            actionDate: existing.action_date,
+            company: existing.company,
+            jobTitle: existing.job_title,
+            rowIndex: conflictIndex,
+            sourceSender: existing.source_sender,
+            sourceSubject: existing.source_subject,
+          },
+          row,
+          rowIndex: rows.length - 1,
+        });
+        result.conflicts += 1;
+      } else {
+        const row = toJobrightRow(job, week);
+        rows.push(row);
+        result.proposedRows.push({
+          kind: "new",
+          row,
+          rowIndex: rows.length - 1,
+        });
+        result.added += 1;
+      }
     }
-
-    const conflictIndex = findConflictIndex(rows, job, week);
-    if (conflictIndex >= 0) {
-      const existing = rows[conflictIndex];
-      const row = toJobrightRow(
-        job,
-        week,
-        `${REVIEW_PREFIX}: may match existing CSV row "${existing.job_title || existing.source_subject}" for ${existing.company || "unknown company"} on ${existing.action_date || job.appliedDate}. Imported from Jobright Applied tab.`,
-      );
-      rows.push(row);
-      result.proposedRows.push({
-        kind: "conflict",
-        match: {
-          actionDate: existing.action_date,
-          company: existing.company,
-          jobTitle: existing.job_title,
-          rowIndex: conflictIndex,
-          sourceSender: existing.source_sender,
-          sourceSubject: existing.source_subject,
-        },
-        row,
-        rowIndex: rows.length - 1,
-      });
-      result.conflicts += 1;
-      continue;
-    }
-
-    const row = toJobrightRow(job, week);
-    rows.push(row);
-    result.proposedRows.push({
-      kind: "new",
-      row,
-      rowIndex: rows.length - 1,
-    });
-    result.added += 1;
   }
 
   return result;

@@ -36,9 +36,10 @@ const dedupeCandidates = (
       candidate.messageId ||
       `${candidate.subject}|${candidate.sender}|${candidate.dateReceived}|${candidate.dateSent}`;
 
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(candidate);
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(candidate);
+    }
   }
 
   return deduped;
@@ -58,14 +59,14 @@ export const findCandidateMessages = (
       haystack.includes(term.toLowerCase()),
     );
 
-    if (matchedTerms.length === 0) continue;
+    if (matchedTerms.length > 0) {
+      const evidenceExcerpt = findEvidenceExcerpt(message, matchedTerms);
 
-    const evidenceExcerpt = findEvidenceExcerpt(message, matchedTerms);
-
-    candidates.push({
-      ...message,
-      evidenceExcerpt,
-    });
+      candidates.push({
+        ...message,
+        evidenceExcerpt,
+      });
+    }
   }
 
   return dedupeCandidates(candidates);

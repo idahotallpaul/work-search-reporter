@@ -20,13 +20,12 @@ const extractOutputText = (response: Record<string, unknown>): string => {
 
   const chunks: string[] = [];
   for (const item of output) {
-    if (!isRecord(item)) continue;
-    const content = item.content;
-    if (!Array.isArray(content)) continue;
-
-    for (const contentItem of content) {
-      if (!isRecord(contentItem)) continue;
-      if (typeof contentItem.text === "string") chunks.push(contentItem.text);
+    if (isRecord(item) && Array.isArray(item.content)) {
+      for (const contentItem of item.content) {
+        if (isRecord(contentItem) && typeof contentItem.text === "string") {
+          chunks.push(contentItem.text);
+        }
+      }
     }
   }
 

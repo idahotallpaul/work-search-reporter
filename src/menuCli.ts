@@ -284,19 +284,19 @@ const main = async (): Promise<void> => {
 
     if (action.setWeek) {
       weekStart = await promptForWeekStart(prompts, weekStart);
-      continue;
-    }
-    if (!action.command) {
+    } else if (!action.command) {
       outro("Done.");
       return;
+    } else {
+      const env =
+        action.usesWeek && weekStart
+          ? { WORK_SEARCH_WEEK_START: weekStart }
+          : {};
+
+      console.log("");
+      await runTsNode(action.command, env);
+      console.log("");
     }
-
-    const env =
-      action.usesWeek && weekStart ? { WORK_SEARCH_WEEK_START: weekStart } : {};
-
-    console.log("");
-    await runTsNode(action.command, env);
-    console.log("");
   }
 };
 

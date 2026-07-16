@@ -63,6 +63,9 @@
         "noUnusedImports": "warn",
         "noUnusedPrivateClassMembers": "warn",
         "noUnusedVariables": "warn"
+      },
+      "style": {
+        "noContinue": "error"
       }
     }
   }

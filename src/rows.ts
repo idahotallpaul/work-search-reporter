@@ -87,9 +87,10 @@ export const filterNewRows = (
 
   for (const row of candidateRows) {
     const key = rowDedupeKey(row);
-    if (existingKeys.has(key) || seenThisRun.has(key)) continue;
-    seenThisRun.add(key);
-    newRows.push(row);
+    if (!existingKeys.has(key) && !seenThisRun.has(key)) {
+      seenThisRun.add(key);
+      newRows.push(row);
+    }
   }
 
   return newRows;

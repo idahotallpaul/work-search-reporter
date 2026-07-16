@@ -18,19 +18,14 @@ const parseRecords = (content: string): string[][] => {
     const char = content[i];
     const next = content[i + 1];
 
-    if (inQuotes) {
-      if (char === '"' && next === '"') {
-        field += '"';
-        i += 1;
-      } else if (char === '"') {
-        inQuotes = false;
-      } else {
-        field += char;
-      }
-      continue;
-    }
-
-    if (char === '"') {
+    if (inQuotes && char === '"' && next === '"') {
+      field += '"';
+      i += 1;
+    } else if (inQuotes && char === '"') {
+      inQuotes = false;
+    } else if (inQuotes) {
+      field += char;
+    } else if (char === '"') {
       inQuotes = true;
     } else if (char === ",") {
       record.push(field);

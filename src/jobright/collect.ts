@@ -133,26 +133,28 @@ const scrapeAppliedJobs = async (
       const actionElement =
         link.parentElement?.querySelector<HTMLElement>('[class*="actions"]');
       const dateMatch = datePattern.exec(actionElement?.textContent || "");
-      if (!dateMatch) continue;
 
-      const titleLine = clean(titleElement?.textContent || "");
-      const company = clean(companyElement?.textContent || "");
-      const jobTitle = titleWithoutCompany(titleLine, company);
-      if (!jobTitle || !company) continue;
+      if (dateMatch) {
+        const titleLine = clean(titleElement?.textContent || "");
+        const company = clean(companyElement?.textContent || "");
+        const jobTitle = titleWithoutCompany(titleLine, company);
 
-      const sourceUrl = new URL(
-        link.getAttribute("href") || "",
-        location.origin,
-      ).toString();
-      const appliedDateText = dateMatch[1];
-      const key = `${jobTitle}|${company}|${appliedDateText}`;
+        if (jobTitle && company) {
+          const sourceUrl = new URL(
+            link.getAttribute("href") || "",
+            location.origin,
+          ).toString();
+          const appliedDateText = dateMatch[1];
+          const key = `${jobTitle}|${company}|${appliedDateText}`;
 
-      jobMap.set(key, {
-        appliedDateText,
-        company,
-        jobTitle,
-        sourceUrl,
-      });
+          jobMap.set(key, {
+            appliedDateText,
+            company,
+            jobTitle,
+            sourceUrl,
+          });
+        }
+      }
     }
 
     return [...jobMap.values()];
