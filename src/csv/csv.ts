@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { CSV_COLUMNS } from "../config";
+import { formatBackupTimestamp } from "../dates";
 import type { WorkSearchRow } from "../types";
 
 type CsvColumn = (typeof CSV_COLUMNS)[number];
@@ -116,7 +117,7 @@ const fileExists = async (filePath: string): Promise<boolean> => {
 };
 
 const timestampForFile = (): string => {
-  return new Date().toISOString().replace(/[:.]/g, "-");
+  return formatBackupTimestamp();
 };
 
 // Appends new rows after backing up the current CSV.

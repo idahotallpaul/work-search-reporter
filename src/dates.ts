@@ -1,22 +1,29 @@
+import {
+  addDays,
+  format,
+  isValid,
+  parse,
+  startOfDay,
+  startOfWeek,
+  subWeeks,
+} from "date-fns";
+
 import type { DateParts, WeekWindow } from "./types";
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ISO_DATE_FORMAT = "yyyy-MM-dd";
+const JOBRIGHT_APPLIED_DATE_FORMAT = "MMM d, yyyy";
+const BACKUP_TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH-mm-ss-SSS";
 
 export const formatLocalDate = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return format(date, ISO_DATE_FORMAT);
 };
 
-// Trims a Date down to the user's local calendar day.
-const startOfLocalDay = (date: Date): Date => {
-  // Claim weeks are local-calendar dates, not UTC instants.
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+export const addLocalDays = (date: Date, days: number): Date => {
+  return addDays(date, days);
 };
 
-const addDays = (date: Date, days: number): Date => {
-  return new Date(date.getTime() + days * ONE_DAY_MS);
+export const subtractLocalWeeks = (date: Date, weeks: number): Date => {
+  return subWeeks(date, weeks);
 };
 
 const toDateParts = (date: Date): DateParts => {
@@ -30,11 +37,10 @@ const toDateParts = (date: Date): DateParts => {
 // Returns the most recent fully completed Sunday-Saturday claim week.
 export const getLastCompletedSundayWeek = (now = new Date()): WeekWindow => {
   // Idaho weekly reporting uses the last complete Sunday-Saturday week.
-  const today = startOfLocalDay(now);
-  const currentDow = today.getDay();
-  const currentSunday = addDays(today, -currentDow);
-  const previousSunday = addDays(currentSunday, -7);
-  const previousSaturday = addDays(currentSunday, -1);
+  const today = startOfDay(now);
+  const currentSunday = startOfWeek(today, { weekStartsOn: 0 });
+  const previousSunday = subtractLocalWeeks(currentSunday, 1);
+  const previousSaturday = addLocalDays(currentSunday, -1);
 
   return {
     claimWeekStart: formatLocalDate(previousSunday),
@@ -45,19 +51,30 @@ export const getLastCompletedSundayWeek = (now = new Date()): WeekWindow => {
 };
 
 export const parseIsoLocalDate = (value: string): Date => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) {
+  const parsed = parse(value.trim(), ISO_DATE_FORMAT, new Date());
+  if (!isValid(parsed) || formatLocalDate(parsed) !== value.trim()) {
     throw new Error(`Expected date as YYYY-MM-DD, got "${value}".`);
   }
-  const [, year, month, day] = match;
-  return new Date(Number(year), Number(month) - 1, Number(day));
+  return parsed;
+};
+
+export const parseJobrightAppliedDate = (value: string): string => {
+  const parsed = parse(value.trim(), JOBRIGHT_APPLIED_DATE_FORMAT, new Date());
+  if (!isValid(parsed)) {
+    throw new Error(`Unable to parse Jobright date: ${value}`);
+  }
+  return formatLocalDate(parsed);
+};
+
+export const formatBackupTimestamp = (date = new Date()): string => {
+  return format(date, BACKUP_TIMESTAMP_FORMAT);
 };
 
 // Builds all date fields needed from a Sunday claim-week start date.
 export const getWeekFromStart = (startIsoDate: string): WeekWindow => {
   const start = parseIsoLocalDate(startIsoDate);
-  const endExclusive = addDays(start, 7);
-  const endInclusive = addDays(start, 6);
+  const endExclusive = addLocalDays(start, 7);
+  const endInclusive = addLocalDays(start, 6);
 
   // Gmail's before: query is exclusive, while the report label is inclusive.
   return {
@@ -70,7 +87,7 @@ export const getWeekFromStart = (startIsoDate: string): WeekWindow => {
 
 // Returns the Sunday-Saturday week that contains today.
 export const getCurrentSundayWeek = (now = new Date()): WeekWindow => {
-  const today = startOfLocalDay(now);
-  const currentSunday = addDays(today, -today.getDay());
+  const today = startOfDay(now);
+  const currentSunday = startOfWeek(today, { weekStartsOn: 0 });
   return getWeekFromStart(formatLocalDate(currentSunday));
 };

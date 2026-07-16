@@ -5,6 +5,7 @@ import { createInterface } from "node:readline/promises";
 
 import { chromium, type Page } from "playwright-core";
 
+import { parseJobrightAppliedDate } from "../dates";
 import type { WeekWindow } from "../types";
 
 const JOBRIGHT_APPLIED_URL = "https://jobright.ai/jobs/applied";
@@ -52,33 +53,6 @@ const waitForEnter = async (message: string): Promise<void> => {
   } finally {
     rl.close();
   }
-};
-
-// Parses Jobright's displayed applied date into YYYY-MM-DD.
-const parseAppliedDate = (value: string): string => {
-  const match =
-    /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s+(\d{4})$/.exec(
-      value.trim(),
-    );
-  if (!match) throw new Error(`Unable to parse Jobright date: ${value}`);
-
-  const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const [, monthName, day, year] = match;
-  const month = String(monthNames.indexOf(monthName) + 1).padStart(2, "0");
-  return `${year}-${month}-${day.padStart(2, "0")}`;
 };
 
 // Reads enough page state to decide whether Jobright has finished rendering.
@@ -319,7 +293,7 @@ export const collectJobrightAppliedJobs = async (
     const rawJobs = await scrapeAllAppliedJobs(page);
     const jobs = rawJobs.map((job) => ({
       ...job,
-      appliedDate: parseAppliedDate(job.appliedDateText),
+      appliedDate: parseJobrightAppliedDate(job.appliedDateText),
     }));
 
     return jobs.filter((job) => {

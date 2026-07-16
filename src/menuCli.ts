@@ -7,6 +7,7 @@ import {
   getLastCompletedSundayWeek,
   getWeekFromStart,
   parseIsoLocalDate,
+  subtractLocalWeeks,
 } from "./dates";
 
 type PromptResult = string | symbol;
@@ -137,7 +138,7 @@ const buildWeekChoices = (
   let previousStart = parseIsoLocalDate(lastCompletedWeek.claimWeekStart);
   for (let i = 0; i < 8; i += 1) {
     weekStarts.add(formatLocalDate(previousStart));
-    previousStart = new Date(previousStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+    previousStart = subtractLocalWeeks(previousStart, 1);
   }
 
   const choices: WeekChoice[] = [...weekStarts]
