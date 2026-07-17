@@ -31,6 +31,7 @@ type GoogleOAuthCredentials = {
 };
 
 type GoogleOAuth2Client = InstanceType<typeof google.auth.OAuth2>;
+type GoogleAuthTokens = Parameters<GoogleOAuth2Client["setCredentials"]>[0];
 
 // Reads the downloaded Google OAuth client JSON.
 const readOAuthClientConfig = async (
@@ -62,10 +63,10 @@ const readOAuthClientConfig = async (
 // Reads a JSON file when it exists, returning undefined on first run.
 const readJsonIfExists = async (
   filePath: string,
-): Promise<Record<string, unknown> | undefined> => {
+): Promise<GoogleAuthTokens | undefined> => {
   try {
     const raw = await fs.readFile(filePath, "utf8");
-    return JSON.parse(raw) as Record<string, unknown>;
+    return JSON.parse(raw) as GoogleAuthTokens;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
@@ -76,7 +77,7 @@ const readJsonIfExists = async (
 const runLocalOAuthFlow = async (
   oauth2Client: GoogleOAuth2Client,
   config: OAuthClientConfig,
-): Promise<Record<string, unknown>> => {
+): Promise<GoogleAuthTokens> => {
   // Desktop OAuth returns to a temporary localhost server on this machine.
   const baseRedirect = new URL(config.redirect_uris[0]);
   if (baseRedirect.hostname !== "localhost") {
@@ -114,7 +115,7 @@ const runLocalOAuthFlow = async (
         response.writeHead(200, { "Content-Type": "text/plain" });
         response.end("Gmail authorization complete. You can close this tab.");
         server.close();
-        resolve(tokens as Record<string, unknown>);
+        resolve(tokens);
       } catch (error) {
         response.writeHead(500, { "Content-Type": "text/plain" });
         response.end((error as Error).message);

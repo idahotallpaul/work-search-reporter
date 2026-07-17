@@ -66,6 +66,9 @@
       },
       "style": {
         "noContinue": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error"
       }
     }
   }

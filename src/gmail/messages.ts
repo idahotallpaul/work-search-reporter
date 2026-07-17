@@ -1,10 +1,15 @@
 import { type gmail_v1, google } from "googleapis";
 
+import { APPLICATION_SEARCH_TERMS } from "../config";
 import type { MailMessage, WeekWindow } from "../types";
 import { getGmailAuthClient } from "./auth";
 
 type CollectGmailArgs = {
   week: WeekWindow;
+};
+
+const buildOrQuery = (terms: readonly string[]): string => {
+  return `(${terms.join(" OR ")})`;
 };
 
 // Builds the broad Gmail query for one claim week.
@@ -23,7 +28,7 @@ export const buildGmailQuery = (week: WeekWindow): string => {
     "-in:sent",
     "-in:trash",
     // Broad terms prevent missed confirmations; extraction filters false hits.
-    "(application OR applied OR applying OR applicant OR candidacy OR candidate)",
+    buildOrQuery(APPLICATION_SEARCH_TERMS),
   ].join(" ");
 };
 

@@ -7,39 +7,83 @@ import type { WorkSearchRow } from "../types";
 
 type CsvColumn = (typeof CSV_COLUMNS)[number];
 
-// Parses CSV records while respecting quoted commas and newlines.
+//
+// Parses CSV records from a string, correctly handling quoted fields, embedded commas,
+// and line breaks inside quoted values. Returns an array of records, where each record
+// is an array of strings representing the CSV columns.
+//
+// Handles:
+//   - Quoted fields: "foo,bar"
+//   - Escaped quotes: "my ""quote"""
+//   - Newlines inside quotes: "foo\nbar"
+//   - Standard unquoted fields
+//
+// Example:
+//   Input:
+//     a,b,"c,d"
+//     1,2,"hello
+//     world"
+//   Output:
+//     [
+//       ["a", "b", "c,d"],
+//       ["1", "2", "hello\nworld"]
+//     ]
+//
+// This parser does not handle all edge cases (e.g., malformed CSV), but covers
+// the cases needed for local CSV reporting typical in this project.
+//
 const parseRecords = (content: string): string[][] => {
   const records: string[][] = [];
   let record: string[] = [];
   let field = "";
   let inQuotes = false;
 
+  // Walk through each character in the CSV string.
   for (let i = 0; i < content.length; i += 1) {
     const char = content[i];
     const next = content[i + 1];
+    const isQuote = char === '"';
+    const isNextQuote = next === '"';
+    const isComma = char === ",";
+    const isNewline = char === "\n";
+    const isCarriageReturn = char === "\r";
 
-    if (inQuotes && char === '"' && next === '"') {
+    // Handle double quote ("") as escaped quote within quoted field
+    if (inQuotes && isQuote && isNextQuote) {
       field += '"';
-      i += 1;
-    } else if (inQuotes && char === '"') {
+      i += 1; // Skip the next quote
+    }
+    // Closing quote for a quoted field
+    else if (inQuotes && isQuote) {
       inQuotes = false;
-    } else if (inQuotes) {
+    }
+    // Inside quoted field, just accumulate the character
+    else if (inQuotes) {
       field += char;
-    } else if (char === '"') {
+    }
+    // Opening quote for a quoted field
+    else if (isQuote) {
       inQuotes = true;
-    } else if (char === ",") {
+    }
+    // Comma outside of quotes marks the end of a field
+    else if (isComma) {
       record.push(field);
       field = "";
-    } else if (char === "\n") {
+    }
+    // Newline outside quotes marks the end of a record/row
+    else if (isNewline) {
       record.push(field);
       records.push(record);
       record = [];
       field = "";
-    } else if (char !== "\r") {
+    }
+    // Ignore carriage returns to handle \r\n or Mac line endings
+    else if (!isCarriageReturn) {
       field += char;
     }
   }
 
+  // Add the last field/row if not already added (end of input)
   if (field !== "" || record.length > 0) {
     record.push(field);
     records.push(record);

@@ -117,12 +117,16 @@ The Jobright import reads job title, company, applied date, and the best availab
 
 ### What Leaves Your Machine
 
-The CSV, backups, Gmail token, OAuth client JSON, and `.env` stay local. The app sends limited data to external services:
+The CSV, backups, Gmail token, OAuth client JSON, processed-email metadata cache, and `.env` stay local. The app sends limited data to external services:
 
 - Google receives Gmail API requests for the selected claim-week search query and matching message reads.
 - OpenAI extraction receives only candidate email metadata and a trimmed evidence excerpt.
 - OpenAI web search receives employer/job details from active-week CSV rows that are missing report-critical mailing address data.
 - Jobright receives normal browser traffic from the dedicated Playwright Chrome profile when the Jobright import runs.
+
+The processed-email cache is stored at `cache/processed-email-extractions.json`. It stores identifiers, subject, sender, received/sent dates, claim week, and processed timestamp. It does not store email bodies, evidence excerpts, attachments, or OpenAI responses.
+
+Delete `cache/processed-email-extractions.json` only when you intentionally want `Fetch application confirmation emails` to resend previously processed candidate emails to OpenAI.
 
 The app never logs into Idaho's portal and never submits anything.
 
@@ -152,14 +156,18 @@ flowchart LR
 
 Use this to find application confirmation emails and add them to the CSV. It does not fetch missing company data.
 
+After OpenAI extraction succeeds, the app records processed email metadata locally. Future runs skip those same candidate emails before OpenAI, including emails that were rejected as non-confirmations.
+
 ```mermaid
 flowchart TD
   A["Fetch application confirmation emails"] --> B["Gmail API: list and fetch candidate messages"]
-  B --> C["OpenAI extraction"]
-  C --> D["Reject non-confirmations"]
-  D --> E["Dedupe against existing CSV"]
-  E --> F["Backup existing CSV"]
-  F --> G["Add application confirmations to outputs/idaho_work_search_log.csv"]
+  B --> C["Filter out previously processed email metadata"]
+  C --> D["OpenAI extraction for new candidates only"]
+  D --> E["Reject non-confirmations"]
+  E --> F["Dedupe against existing CSV"]
+  F --> G["Backup existing CSV"]
+  G --> H["Add application confirmations to outputs/idaho_work_search_log.csv"]
+  H --> I["Save processed-email metadata cache"]
 ```
 
 ### Fetch Jobright Applied Jobs

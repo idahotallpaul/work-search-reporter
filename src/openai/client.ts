@@ -1,17 +1,80 @@
+type JsonPrimitive = boolean | null | number | string;
+type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
+type JsonObject = { readonly [key: string]: JsonValue };
+
+type ResponsesMessage = {
+  role: "system" | "user";
+  content: string;
+};
+
+type ResponsesTextFormat = {
+  format: {
+    type: "json_schema";
+    name: string;
+    strict: true;
+    schema: JsonObject;
+  };
+};
+
+type ResponsesTool = {
+  type: "web_search";
+};
+
 type ResponsesRequest = {
   model: string;
-  input: unknown;
-  text?: unknown;
-  tools?: unknown[];
+  input: ResponsesMessage[];
+  text?: ResponsesTextFormat;
+  tools?: ResponsesTool[];
   tool_choice?: "none" | "auto" | "required";
+};
+
+type ResponsesContentItem = {
+  text?: string;
+};
+
+type ResponsesOutputItem = {
+  content?: ResponsesContentItem[];
+};
+
+type ResponsesApiResponse = {
+  output_text?: string;
+  output?: ResponsesOutputItem[];
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+// Converts untrusted API JSON into the response subset this app reads.
+const parseResponsesApiResponse = (value: unknown): ResponsesApiResponse => {
+  if (!isRecord(value)) return {};
+
+  const output = Array.isArray(value.output)
+    ? value.output.flatMap((item): ResponsesOutputItem[] => {
+        if (!isRecord(item) || !Array.isArray(item.content)) return [];
+
+        const content = item.content.flatMap(
+          (contentItem): ResponsesContentItem[] => {
+            if (!isRecord(contentItem)) return [];
+            return typeof contentItem.text === "string"
+              ? [{ text: contentItem.text }]
+              : [];
+          },
+        );
+
+        return [{ content }];
+      })
+    : undefined;
+
+  return {
+    output_text:
+      typeof value.output_text === "string" ? value.output_text : undefined,
+    output,
+  };
+};
+
 // Pulls text out of the Responses API response shapes this app uses.
-const extractOutputText = (response: Record<string, unknown>): string => {
+const extractOutputText = (response: ResponsesApiResponse): string => {
   if (typeof response.output_text === "string") return response.output_text;
 
   // Some Responses API payloads require walking output content manually.
@@ -20,11 +83,9 @@ const extractOutputText = (response: Record<string, unknown>): string => {
 
   const chunks: string[] = [];
   for (const item of output) {
-    if (isRecord(item) && Array.isArray(item.content)) {
+    if (item.content) {
       for (const contentItem of item.content) {
-        if (isRecord(contentItem) && typeof contentItem.text === "string") {
-          chunks.push(contentItem.text);
-        }
+        if (contentItem.text) chunks.push(contentItem.text);
       }
     }
   }
@@ -46,11 +107,12 @@ export const createResponse = async <T>(
     body: JSON.stringify(request),
   });
 
-  const json = (await response.json()) as Record<string, unknown>;
+  const rawJson: unknown = await response.json();
+  const json = parseResponsesApiResponse(rawJson);
 
   if (!response.ok) {
     throw new Error(
-      `OpenAI API error ${response.status}: ${JSON.stringify(json)}`,
+      `OpenAI API error ${response.status}: ${JSON.stringify(rawJson)}`,
     );
   }
 

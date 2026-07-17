@@ -2,6 +2,9 @@ import path from "node:path";
 export const DEFAULT_OUTPUT_PATH = path.resolve(
   "/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/outputs/idaho_work_search_log.csv",
 );
+export const DEFAULT_PROCESSED_EMAIL_CACHE_PATH = path.resolve(
+  "/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/cache/processed-email-extractions.json",
+);
 
 export const CSV_COLUMNS = [
   "claim_week_start",
@@ -26,10 +29,16 @@ export const CSV_COLUMNS = [
   "notes",
 ] as const;
 
-export const CANDIDATE_TERMS = [
+export const APPLICATION_SEARCH_TERMS = [
   "application",
-  "applying",
   "applied",
+  "applying",
+  "applicant",
+  "candidacy",
+  "candidate",
+] as const;
+
+export const APPLICATION_EVIDENCE_PHRASES = [
   "thank you for applying",
   "thank you for your application",
   "interview",
@@ -38,6 +47,11 @@ export const CANDIDATE_TERMS = [
   "cover letter",
   "we received your",
   "your candidacy",
+] as const;
+
+export const CANDIDATE_TERMS = [
+  ...APPLICATION_SEARCH_TERMS,
+  ...APPLICATION_EVIDENCE_PHRASES,
 ] as const;
 
 export const DEFAULT_EXTRACT_MODEL =

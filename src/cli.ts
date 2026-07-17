@@ -9,6 +9,11 @@ import { collectGmailMessages } from "./gmail/messages";
 import { findCandidateMessages } from "./mail/candidates";
 import { candidateSourceId, extractActions } from "./openai/extract";
 import { filterNewRows, toWorkSearchRow } from "./rows";
+import {
+  filterUnprocessedCandidates,
+  readProcessedEmailCache,
+  writeProcessedEmailCache,
+} from "./storage/processedEmails";
 import type { WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
@@ -65,13 +70,36 @@ const main = async (): Promise<void> => {
     );
   }
 
+  const processedEmailCache = await readProcessedEmailCache();
+  // Skip candidates already sent to OpenAI, including previous false positives.
+  const unprocessedCandidates = filterUnprocessedCandidates(
+    candidates,
+    processedEmailCache,
+  );
+  const skippedCandidates = candidates.length - unprocessedCandidates.length;
+  if (skippedCandidates > 0) {
+    console.log(
+      `Skipped ${skippedCandidates} candidate email(s) already sent to OpenAI.`,
+    );
+  }
+
+  if (unprocessedCandidates.length === 0) {
+    console.log("No new candidate emails to send to OpenAI.");
+    return;
+  }
+
   console.log("Extracting candidates in batch(es) of 10.");
-  const actionsById = await extractActions(candidates, week, 10, apiKey);
+  const actionsById = await extractActions(
+    unprocessedCandidates,
+    week,
+    10,
+    apiKey,
+  );
 
   const rows: WorkSearchRow[] = [];
-  for (const [index, candidate] of candidates.entries()) {
+  for (const [index, candidate] of unprocessedCandidates.entries()) {
     console.log(
-      `Preparing ${index + 1}/${candidates.length}: ${candidate.subject || "(no subject)"}`,
+      `Preparing ${index + 1}/${unprocessedCandidates.length}: ${candidate.subject || "(no subject)"}`,
     );
 
     const action = actionsById.get(candidateSourceId(candidate));
@@ -86,6 +114,12 @@ const main = async (): Promise<void> => {
 
   if (newRows.length === 0) {
     console.log("No new application confirmation emails found.");
+    // Cache processed candidates even when OpenAI rejects them all.
+    await writeProcessedEmailCache(
+      processedEmailCache,
+      unprocessedCandidates,
+      week,
+    );
     return;
   }
 
@@ -96,6 +130,12 @@ const main = async (): Promise<void> => {
   );
   console.log(
     `Added ${newRows.length} application confirmation(s) to ${DEFAULT_OUTPUT_PATH}.`,
+  );
+  // Cache after successful CSV work so an interrupted run can be retried.
+  await writeProcessedEmailCache(
+    processedEmailCache,
+    unprocessedCandidates,
+    week,
   );
 };
 
