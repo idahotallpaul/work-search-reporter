@@ -35,6 +35,12 @@ This app uses two configured services plus one logged-in browser session:
 
 The app stores credentials, browser profile data, and generated data locally. `.env`, `google-oauth-client.json`, `cache/`, `outputs/`, and `backups/` are ignored by git.
 
+### Tampermonkey Form Helpers
+
+Browser form helpers live in `tampermonkey/`. They are separate from the CLI and are meant to fill Idaho certification pages only after you click a helper button. They never click `Next`, `Submit`, or final certification controls.
+
+Start with `tampermonkey/idaho-weekly-certification-helper.user.js`. It currently supports Step 1, Work Availability; Step 2, Income; Step 3 work-search action CSV import/fill helpers; and final Submit-page acknowledgement boxes. See `tampermonkey/README.md` for install and testing notes.
+
 ### Google Gmail API
 
 The Gmail API lets the app search and read email from the account you authorize. It is used by:

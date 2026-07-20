@@ -14,7 +14,9 @@
       "tsconfig.json",
       ".vscode/settings.json",
       ".vscode/extensions.json",
-      "src/**/*.ts"
+      "src/**/*.ts",
+      "tampermonkey/**/*.js",
+      "tampermonkey/**/*.md"
     ]
   },
   "formatter": {
