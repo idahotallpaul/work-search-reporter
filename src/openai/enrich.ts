@@ -4,7 +4,17 @@ import type {
   ExtractedAction,
   WorkSearchRow,
 } from "../types";
-import { createResponse } from "./client";
+import { createResponseWithUsage, type OpenAiUsage } from "./client";
+
+export type EnrichEmployerRowResult = {
+  enrichment: EnrichedEmployer;
+  usage?: OpenAiUsage;
+};
+
+type EnrichmentContext = {
+  employerWebsite: string;
+  sourceUrl: string;
+};
 
 const enrichmentSchema = {
   type: "object",
@@ -39,7 +49,8 @@ const enrichmentSchema = {
 export const enrichEmployer = async (
   action: ExtractedAction,
   apiKey: string,
-): Promise<EnrichedEmployer> => {
+  context: EnrichmentContext = { employerWebsite: "", sourceUrl: "" },
+): Promise<EnrichEmployerRowResult> => {
   if (!action.company) {
     throw new Error(
       "Cannot fetch missing company data without a company name.",
@@ -47,7 +58,7 @@ export const enrichEmployer = async (
   }
 
   // Force web search so employer details come from current public sources.
-  return createResponse<EnrichedEmployer>(
+  const response = await createResponseWithUsage<EnrichedEmployer>(
     {
       model: DEFAULT_ENRICH_MODEL,
       input: [
@@ -61,6 +72,8 @@ export const enrichEmployer = async (
           content: JSON.stringify({
             company: action.company,
             job_title: action.job_title,
+            known_employer_website: context.employerWebsite,
+            known_source_url: context.sourceUrl,
           }),
         },
       ],
@@ -77,13 +90,18 @@ export const enrichEmployer = async (
     },
     apiKey,
   );
+
+  return {
+    enrichment: response.data,
+    usage: response.usage,
+  };
 };
 
 // Adapts an existing CSV row into the enrichment request shape.
 export const enrichEmployerRow = async (
   row: WorkSearchRow,
   apiKey: string,
-): Promise<EnrichedEmployer> => {
+): Promise<EnrichEmployerRowResult> => {
   // Reuse the action-based enrichment path for rows already stored in CSV.
   return enrichEmployer(
     {
@@ -98,5 +116,9 @@ export const enrichEmployerRow = async (
       notes: row.notes,
     },
     apiKey,
+    {
+      employerWebsite: row.employer_website,
+      sourceUrl: row.source_url,
+    },
   );
 };

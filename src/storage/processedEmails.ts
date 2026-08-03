@@ -2,9 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { DEFAULT_PROCESSED_EMAIL_CACHE_PATH } from "../config";
+import { candidateSourceRowKey } from "../rows";
 import { normalizeForKey } from "../text";
 import type { CandidateMessage, WeekWindow } from "../types";
 
+export type ProcessedEmailOutcome = "no_action" | "row_written";
+
+// Metadata-only record for one candidate email that reached extraction.
 type ProcessedEmailRecord = {
   key: string;
   source_message_id: string;
@@ -15,6 +19,7 @@ type ProcessedEmailRecord = {
   date_sent: string;
   claim_week_start: string;
   claim_week_end: string;
+  extraction_result?: ProcessedEmailOutcome;
   processed_at: string;
 };
 
@@ -38,8 +43,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const isProcessedEmailRecord = (
   value: unknown,
 ): value is ProcessedEmailRecord => {
+  if (!isRecord(value)) return false;
+
+  const extractionResult = value.extraction_result;
   return (
-    isRecord(value) &&
     typeof value.key === "string" &&
     typeof value.source_message_id === "string" &&
     typeof value.message_id === "string" &&
@@ -49,6 +56,9 @@ const isProcessedEmailRecord = (
     typeof value.date_sent === "string" &&
     typeof value.claim_week_start === "string" &&
     typeof value.claim_week_end === "string" &&
+    (extractionResult === undefined ||
+      extractionResult === "no_action" ||
+      extractionResult === "row_written") &&
     typeof value.processed_at === "string"
   );
 };
@@ -56,7 +66,7 @@ const isProcessedEmailRecord = (
 const parseCache = (value: unknown): ProcessedEmailCache => {
   if (!isRecord(value) || !Array.isArray(value.emails)) return emptyCache();
 
-  // Ignore malformed records instead of failing the whole weekly run.
+  // Ignore malformed or future-shape records instead of blocking a weekly run.
   return {
     version: 1,
     emails: value.emails.filter(isProcessedEmailRecord),
@@ -91,11 +101,23 @@ export const readProcessedEmailCache =
 export const filterUnprocessedCandidates = (
   candidates: readonly CandidateMessage[],
   cache: ProcessedEmailCache,
+  currentCsvSourceKeys: ReadonlySet<string>,
 ): CandidateMessage[] => {
-  const processedKeys = new Set(cache.emails.map((email) => email.key));
-  // Only new candidates should reach OpenAI; old noise stays skipped too.
+  const processedRecordsByKey = new Map(
+    cache.emails.map((email) => [email.key, email] as const),
+  );
+
+  // Manual CSV deletes should make row-bearing emails eligible for retesting.
+  // Known no-action emails stay skipped because they never produced a row.
+  // Older cache entries without extraction_result behave like row_written.
   return candidates.filter((candidate) => {
-    return !processedKeys.has(processedEmailKey(candidate));
+    const processedRecord = processedRecordsByKey.get(
+      processedEmailKey(candidate),
+    );
+    if (!processedRecord) return true;
+    if (processedRecord.extraction_result === "no_action") return false;
+
+    return !currentCsvSourceKeys.has(candidateSourceRowKey(candidate));
   });
 };
 
@@ -103,6 +125,7 @@ const toProcessedEmailRecord = (
   candidate: CandidateMessage,
   week: WeekWindow,
   processedAt: string,
+  extractionResult?: ProcessedEmailOutcome,
 ): ProcessedEmailRecord => {
   return {
     key: processedEmailKey(candidate),
@@ -114,6 +137,7 @@ const toProcessedEmailRecord = (
     date_sent: candidate.dateSent,
     claim_week_start: week.claimWeekStart,
     claim_week_end: week.claimWeekEnd,
+    extraction_result: extractionResult,
     processed_at: processedAt,
   };
 };
@@ -123,6 +147,7 @@ export const writeProcessedEmailCache = async (
   cache: ProcessedEmailCache,
   candidates: readonly CandidateMessage[],
   week: WeekWindow,
+  outcomes: ReadonlyMap<string, ProcessedEmailOutcome> = new Map(),
 ): Promise<void> => {
   const processedAt = new Date().toISOString();
   const recordsByKey = new Map(
@@ -131,7 +156,12 @@ export const writeProcessedEmailCache = async (
 
   // Upsert so reprocessing a candidate updates metadata without duplicating it.
   for (const candidate of candidates) {
-    const record = toProcessedEmailRecord(candidate, week, processedAt);
+    const record = toProcessedEmailRecord(
+      candidate,
+      week,
+      processedAt,
+      outcomes.get(processedEmailKey(candidate)),
+    );
     recordsByKey.set(record.key, record);
   }
 

@@ -14,6 +14,22 @@ const normalizeSourceDate = (value: string): string => {
   return date.toISOString();
 };
 
+// Builds the source identity that an email-derived row will write to the CSV.
+export const candidateSourceRowKey = (candidate: CandidateMessage): string => {
+  return normalizeForKey(
+    `${candidate.subject}|${candidate.sender}|${normalizeSourceDate(
+      candidate.dateReceived || candidate.dateSent,
+    )}`,
+  );
+};
+
+// Reads the source identity from an existing CSV row.
+export const rowSourceKey = (row: WorkSearchRow): string => {
+  return normalizeForKey(
+    `${row.source_subject}|${row.source_sender}|${row.source_date}`,
+  );
+};
+
 // Combines extraction and enrichment output into one portal-ready CSV row.
 export const toWorkSearchRow = (
   week: WeekWindow,
@@ -66,9 +82,7 @@ export const toWorkSearchRow = (
 // Builds the duplicate key used across existing and newly collected rows.
 export const rowDedupeKey = (row: WorkSearchRow): string => {
   // Source email identity is preferred because company/title can be edited.
-  const sourceKey = normalizeForKey(
-    `${row.source_subject}|${row.source_sender}|${row.source_date}`,
-  );
+  const sourceKey = rowSourceKey(row);
   if (sourceKey) return sourceKey;
 
   return normalizeForKey(

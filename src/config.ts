@@ -1,9 +1,13 @@
 import path from "node:path";
+
 export const DEFAULT_OUTPUT_PATH = path.resolve(
   "/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/outputs/idaho_work_search_log.csv",
 );
 export const DEFAULT_PROCESSED_EMAIL_CACHE_PATH = path.resolve(
   "/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/cache/processed-email-extractions.json",
+);
+export const DEFAULT_OPENAI_USAGE_LOG_PATH = path.resolve(
+  "/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/cache/openai-usage-log.jsonl",
 );
 
 export const CSV_COLUMNS = [
@@ -55,6 +59,11 @@ export const CANDIDATE_TERMS = [
 ] as const;
 
 export const DEFAULT_EXTRACT_MODEL =
-  process.env.OPENAI_EXTRACT_MODEL || "gpt-5.6";
+  process.env.OPENAI_EXTRACT_MODEL || "gpt-5.6-luna";
 export const DEFAULT_ENRICH_MODEL =
-  process.env.OPENAI_ENRICH_MODEL || "gpt-5.6";
+  process.env.OPENAI_ENRICH_MODEL || "gpt-5.6-terra";
+
+export const DEFAULT_OPENAI_EXTRACT_BATCH_SIZE = 10;
+export const DEFAULT_OPENAI_ENRICH_CONCURRENCY = 2;
+export const LARGE_EXTRACTION_RUN_EMAIL_COUNT = 20;
+export const LARGE_ENRICHMENT_RUN_ROW_COUNT = 5;

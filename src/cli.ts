@@ -2,19 +2,31 @@ import path from "node:path";
 
 import dotenv from "dotenv";
 
-import { DEFAULT_OUTPUT_PATH } from "./config";
+import {
+  DEFAULT_EXTRACT_MODEL,
+  DEFAULT_OPENAI_EXTRACT_BATCH_SIZE,
+  DEFAULT_OUTPUT_PATH,
+  LARGE_EXTRACTION_RUN_EMAIL_COUNT,
+} from "./config";
 import { appendRowsWithBackup, readRows } from "./csv/csv";
 import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
 import { collectGmailMessages } from "./gmail/messages";
 import { findCandidateMessages } from "./mail/candidates";
 import { candidateSourceId, extractActions } from "./openai/extract";
-import { filterNewRows, toWorkSearchRow } from "./rows";
+import { filterNewRows, rowSourceKey, toWorkSearchRow } from "./rows";
+import {
+  estimateTokensFromCharacters,
+  printOpenAiUsageSummary,
+  writeOpenAiUsageLog,
+} from "./storage/openaiUsage";
 import {
   filterUnprocessedCandidates,
+  type ProcessedEmailOutcome,
+  processedEmailKey,
   readProcessedEmailCache,
   writeProcessedEmailCache,
 } from "./storage/processedEmails";
-import type { WorkSearchRow } from "./types";
+import type { CandidateMessage, WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
@@ -32,6 +44,25 @@ const emptyEnrichment = () => {
     confidence: 0,
     notes: "Needs missing company data",
   };
+};
+
+// Estimates the request size without storing or logging email contents.
+const approximateExtractionInputCharacters = (
+  candidates: readonly CandidateMessage[],
+): number => {
+  const staticPromptCharacters = 1_500;
+  const candidateCharacters = candidates.reduce((total, candidate) => {
+    return (
+      total +
+      candidate.sender.length +
+      candidate.subject.length +
+      candidate.dateReceived.length +
+      candidate.dateSent.length +
+      candidate.evidenceExcerpt.length
+    );
+  }, 0);
+
+  return staticPromptCharacters + candidateCharacters;
 };
 
 // Blocks old flag-based usage so weekly runs go through the menu.
@@ -71,32 +102,68 @@ const main = async (): Promise<void> => {
   }
 
   const processedEmailCache = await readProcessedEmailCache();
-  // Skip candidates already sent to OpenAI, including previous false positives.
+  const existingRows = await readRows(DEFAULT_OUTPUT_PATH);
+  const existingSourceKeys = new Set(
+    existingRows.map(rowSourceKey).filter((key) => key !== ""),
+  );
+
+  // Skip cached emails only when their CSV row still exists or they were known
+  // no-action messages. Deleted CSV rows can be rebuilt during manual retests.
   const unprocessedCandidates = filterUnprocessedCandidates(
     candidates,
     processedEmailCache,
+    existingSourceKeys,
   );
   const skippedCandidates = candidates.length - unprocessedCandidates.length;
-  if (skippedCandidates > 0) {
-    console.log(
-      `Skipped ${skippedCandidates} candidate email(s) already sent to OpenAI.`,
-    );
-  }
+  console.log(
+    `Skipped ${skippedCandidates} candidate email(s) already represented in the CSV or known not to be application confirmations.`,
+  );
 
   if (unprocessedCandidates.length === 0) {
     console.log("No new candidate emails to send to OpenAI.");
     return;
   }
 
-  console.log("Extracting candidates in batch(es) of 10.");
-  const actionsById = await extractActions(
+  const batchCount = Math.ceil(
+    unprocessedCandidates.length / DEFAULT_OPENAI_EXTRACT_BATCH_SIZE,
+  );
+  const approximateInputCharacters = approximateExtractionInputCharacters(
     unprocessedCandidates,
-    week,
-    10,
-    apiKey,
+  );
+  const approximateInputTokens = estimateTokensFromCharacters(
+    approximateInputCharacters,
   );
 
+  console.log("OpenAI extraction preflight:");
+  console.log(`- Model: ${DEFAULT_EXTRACT_MODEL}`);
+  console.log(`- New candidate emails: ${unprocessedCandidates.length}`);
+  console.log(`- Batches: ${batchCount}`);
+  console.log(
+    `- Approximate input size: ${approximateInputCharacters} character(s), roughly ${approximateInputTokens} token(s)`,
+  );
+  if (unprocessedCandidates.length > LARGE_EXTRACTION_RUN_EMAIL_COUNT) {
+    console.log(
+      `- Warning: this is larger than the normal ${LARGE_EXTRACTION_RUN_EMAIL_COUNT}-email threshold.`,
+    );
+  }
+
+  const { actionsById, usages } = await extractActions(
+    unprocessedCandidates,
+    week,
+    DEFAULT_OPENAI_EXTRACT_BATCH_SIZE,
+    apiKey,
+  );
+  await writeOpenAiUsageLog({
+    approximateInputCharacters,
+    candidateCount: unprocessedCandidates.length,
+    command: "extract",
+    model: DEFAULT_EXTRACT_MODEL,
+    usages,
+  });
+  printOpenAiUsageSummary(usages);
+
   const rows: WorkSearchRow[] = [];
+  const processedOutcomes = new Map<string, ProcessedEmailOutcome>();
   for (const [index, candidate] of unprocessedCandidates.entries()) {
     console.log(
       `Preparing ${index + 1}/${unprocessedCandidates.length}: ${candidate.subject || "(no subject)"}`,
@@ -105,10 +172,12 @@ const main = async (): Promise<void> => {
     const action = actionsById.get(candidateSourceId(candidate));
     if (action?.action_found) {
       rows.push(toWorkSearchRow(week, candidate, action, emptyEnrichment()));
+      processedOutcomes.set(processedEmailKey(candidate), "row_written");
+    } else {
+      processedOutcomes.set(processedEmailKey(candidate), "no_action");
     }
   }
 
-  const existingRows = await readRows(DEFAULT_OUTPUT_PATH);
   // Preserve manual CSV edits by reading the current file before appending.
   const newRows = filterNewRows(existingRows, rows);
 
@@ -119,6 +188,7 @@ const main = async (): Promise<void> => {
       processedEmailCache,
       unprocessedCandidates,
       week,
+      processedOutcomes,
     );
     return;
   }
@@ -136,6 +206,7 @@ const main = async (): Promise<void> => {
     processedEmailCache,
     unprocessedCandidates,
     week,
+    processedOutcomes,
   );
 };
 

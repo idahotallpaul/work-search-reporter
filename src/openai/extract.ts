@@ -1,10 +1,15 @@
 import { DEFAULT_EXTRACT_MODEL } from "../config";
 import { truncate } from "../text";
 import type { CandidateMessage, ExtractedAction, WeekWindow } from "../types";
-import { createResponse } from "./client";
+import { createResponseWithUsage, type OpenAiUsage } from "./client";
 
 type BatchExtractionResponse = {
   actions: ExtractedAction[];
+};
+
+export type ExtractActionsResult = {
+  actionsById: Map<string, ExtractedAction>;
+  usages: OpenAiUsage[];
 };
 
 const actionProperties = {
@@ -62,13 +67,14 @@ export const extractActions = async (
   week: WeekWindow,
   batchSize: number,
   apiKey: string,
-): Promise<Map<string, ExtractedAction>> => {
+): Promise<ExtractActionsResult> => {
   const actionsById = new Map<string, ExtractedAction>();
+  const usages: OpenAiUsage[] = [];
 
   for (let start = 0; start < candidates.length; start += batchSize) {
     const batch = candidates.slice(start, start + batchSize);
     // Send only metadata plus a trimmed excerpt, never full mailbox contents.
-    const response = await createResponse<BatchExtractionResponse>(
+    const response = await createResponseWithUsage<BatchExtractionResponse>(
       {
         model: DEFAULT_EXTRACT_MODEL,
         input: [
@@ -104,11 +110,15 @@ export const extractActions = async (
       },
       apiKey,
     );
+    if (response.usage) usages.push(response.usage);
 
-    for (const action of response.actions) {
+    for (const action of response.data.actions) {
       actionsById.set(action.source_message_id, action);
     }
   }
 
-  return actionsById;
+  return {
+    actionsById,
+    usages,
+  };
 };

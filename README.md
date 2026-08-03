@@ -94,9 +94,18 @@ The app loads the key from `.env` only. Do not commit `.env`; it is ignored by g
 Optional model overrides can also be set in `.env`:
 
 ```env
-OPENAI_EXTRACT_MODEL="gpt-5.6"
-OPENAI_ENRICH_MODEL="gpt-5.6"
+OPENAI_EXTRACT_MODEL="gpt-5.6-luna"
+OPENAI_ENRICH_MODEL="gpt-5.6-terra"
 ```
+
+By default, email extraction uses `gpt-5.6-luna`, a lower-cost model for
+structured classification and extraction from short snippets. Missing company
+data enrichment uses `gpt-5.6-terra`, which is more capable for web-search
+address lookup while avoiding the bare `gpt-5.6` alias.
+
+Before OpenAI calls, the CLI prints a preflight summary with candidate or row
+counts, model, batch/concurrency settings, and an approximate input size. Large
+runs show a warning but do not add another confirmation step.
 
 `OPENAI_API_KEY` is required for both fetching application confirmation emails and fetching missing company data.
 
@@ -106,6 +115,7 @@ Useful OpenAI docs:
 - [Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
 - [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [Web search tool](https://developers.openai.com/api/docs/guides/tools-web-search)
+- [Cost optimization](https://developers.openai.com/api/docs/guides/cost-optimization)
 
 ### Jobright Browser Session
 
@@ -123,16 +133,21 @@ The Jobright import reads job title, company, applied date, and the best availab
 
 ### What Leaves Your Machine
 
-The CSV, backups, Gmail token, OAuth client JSON, processed-email metadata cache, and `.env` stay local. The app sends limited data to external services:
+The CSV, backups, Gmail token, OAuth client JSON, processed-email metadata cache, OpenAI usage metadata log, and `.env` stay local. The app sends limited data to external services:
 
 - Google receives Gmail API requests for the selected claim-week search query and matching message reads.
 - OpenAI extraction receives only candidate email metadata and a trimmed evidence excerpt.
 - OpenAI web search receives employer/job details from active-week CSV rows that are missing report-critical mailing address data.
 - Jobright receives normal browser traffic from the dedicated Playwright Chrome profile when the Jobright import runs.
 
-The processed-email cache is stored at `cache/processed-email-extractions.json`. It stores identifiers, subject, sender, received/sent dates, claim week, and processed timestamp. It does not store email bodies, evidence excerpts, attachments, or OpenAI responses.
+The processed-email cache is stored at `cache/processed-email-extractions.json`. It stores identifiers, subject, sender, received/sent dates, claim week, whether extraction wrote a row or found no action, and processed timestamp. It does not store email bodies, evidence excerpts, attachments, or OpenAI responses.
 
-Delete `cache/processed-email-extractions.json` only when you intentionally want `Fetch application confirmation emails` to resend previously processed candidate emails to OpenAI.
+When `Fetch application confirmation emails` runs, cached emails are skipped only if they are still represented in the current CSV or were previously classified as no-action messages. If you manually delete an email-derived CSV row, that email can be resent to OpenAI and rebuilt during a retest. Delete `cache/processed-email-extractions.json` only when you intentionally want to clear all processed-email history, including no-action decisions.
+
+The OpenAI usage log is stored at `cache/openai-usage-log.jsonl`. It stores
+metadata only: command, model, candidate or row counts, approximate input size,
+and token totals when OpenAI reports them. It does not store prompts, email
+bodies, CSV row contents, API keys, or secrets.
 
 The app never logs into Idaho's portal and never submits anything.
 
@@ -162,18 +177,20 @@ flowchart LR
 
 Use this to find application confirmation emails and add them to the CSV. It does not fetch missing company data.
 
-After OpenAI extraction succeeds, the app records processed email metadata locally. Future runs skip those same candidate emails before OpenAI, including emails that were rejected as non-confirmations.
+After local obvious-noise filtering and OpenAI extraction succeed, the app records processed email metadata locally. Future runs compare that cache with the current CSV before OpenAI: email-derived rows that still exist are skipped, manually deleted rows can be rebuilt, and emails previously rejected as non-confirmations stay skipped.
 
 ```mermaid
 flowchart TD
   A["Fetch application confirmation emails"] --> B["Gmail API: list and fetch candidate messages"]
-  B --> C["Filter out previously processed email metadata"]
-  C --> D["OpenAI extraction for new candidates only"]
-  D --> E["Reject non-confirmations"]
-  E --> F["Dedupe against existing CSV"]
-  F --> G["Backup existing CSV"]
-  G --> H["Add application confirmations to outputs/idaho_work_search_log.csv"]
-  H --> I["Save processed-email metadata cache"]
+  B --> C["Remove obvious local noise"]
+  C --> D["Compare processed metadata with current CSV"]
+  D --> E["Print OpenAI preflight summary"]
+  E --> F["OpenAI extraction for new candidates only"]
+  F --> G["Reject non-confirmations"]
+  G --> H["Dedupe against existing CSV"]
+  H --> I["Backup existing CSV"]
+  I --> J["Add application confirmations to outputs/idaho_work_search_log.csv"]
+  J --> K["Save processed-email metadata and usage logs"]
 ```
 
 ### Fetch Jobright Applied Jobs
@@ -223,16 +240,18 @@ flowchart LR
 
 ### Fetch Missing Company Data
 
-Use this after review. It reads the CSV, finds active-week entries with missing report-critical address data, and uses OpenAI web search to fill mailing address fields. The OpenAI response can also fill website, contact, source URL, confidence, and notes when available, but missing website or contact fields alone do not trigger a lookup. It does not sweep older incomplete rows unless you change the active week first.
+Use this after review. It reads the CSV, finds active-week entries with missing report-critical address data, and uses OpenAI web search to fill mailing address fields. The OpenAI response can also fill website, contact, source URL, confidence, and notes when available, but missing website or contact fields alone do not trigger a lookup. It skips rows already marked as having no reliable address found and does not sweep older incomplete rows unless you change the active week first.
 
 ```mermaid
 flowchart TD
   A["Fetch missing company data"] --> B["Read CSV"]
   B --> C["Find active-week entries with missing address data"]
-  C --> D["OpenAI web search per company"]
-  D --> E["Fill mailing address and any extra returned details"]
-  E --> F["Backup existing CSV"]
-  F --> G["Rewrite CSV with missing company data filled"]
+  C --> D["Skip rows already marked no reliable address"]
+  D --> E["Print OpenAI preflight summary"]
+  E --> F["OpenAI web search per company"]
+  F --> G["Print saved and still-missing fields"]
+  G --> H["Backup existing CSV"]
+  H --> I["Rewrite CSV with missing company data filled"]
 ```
 
 ## Command
@@ -272,8 +291,8 @@ The shared VS Code settings use Biome as the default formatter, format on save, 
 ## Notes
 
 - Gmail is used only for read-only email search and retrieval.
-- OpenAI extraction is used by `collect` to reject non-confirmation emails.
-- OpenAI web search is used only by `enrich` for active-week rows.
-- Jobright import is used only by `jobright` and stores its browser session under `cache/jobright-browser`.
-- `collect` does not fetch missing company data.
+- OpenAI extraction is used by `Fetch application confirmation emails` to reject non-confirmation emails.
+- OpenAI web search is used only by `Fetch missing company data` for active-week rows.
+- Jobright import is used only by `Fetch Jobright applied jobs` and stores its browser session under `cache/jobright-browser`.
+- `Fetch application confirmation emails` does not fetch missing company data.
 - The tool never logs into Idaho's portal and never submits anything.

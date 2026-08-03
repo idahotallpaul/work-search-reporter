@@ -37,12 +37,51 @@ type ResponsesOutputItem = {
 };
 
 type ResponsesApiResponse = {
+  usage?: OpenAiUsage;
   output_text?: string;
   output?: ResponsesOutputItem[];
 };
 
+export type OpenAiUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+};
+
+export type OpenAiResponse<T> = {
+  data: T;
+  usage?: OpenAiUsage;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
+};
+
+const readNumber = (
+  value: Record<string, unknown>,
+  key: string,
+): number | undefined => {
+  const found = value[key];
+  return typeof found === "number" ? found : undefined;
+};
+
+const parseUsage = (value: unknown): OpenAiUsage | undefined => {
+  if (!isRecord(value)) return undefined;
+
+  const inputDetails = value.input_tokens_details;
+  const outputDetails = value.output_tokens_details;
+  const inputDetailsRecord = isRecord(inputDetails) ? inputDetails : {};
+  const outputDetailsRecord = isRecord(outputDetails) ? outputDetails : {};
+
+  return {
+    inputTokens: readNumber(value, "input_tokens"),
+    outputTokens: readNumber(value, "output_tokens"),
+    totalTokens: readNumber(value, "total_tokens"),
+    cachedInputTokens: readNumber(inputDetailsRecord, "cached_tokens"),
+    reasoningTokens: readNumber(outputDetailsRecord, "reasoning_tokens"),
+  };
 };
 
 // Converts untrusted API JSON into the response subset this app reads.
@@ -67,6 +106,7 @@ const parseResponsesApiResponse = (value: unknown): ResponsesApiResponse => {
     : undefined;
 
   return {
+    usage: parseUsage(value.usage),
     output_text:
       typeof value.output_text === "string" ? value.output_text : undefined,
     output,
@@ -93,11 +133,11 @@ const extractOutputText = (response: ResponsesApiResponse): string => {
   return chunks.join("");
 };
 
-// Sends a raw Responses API request and parses the JSON output.
-export const createResponse = async <T>(
+// Sends a raw Responses API request, parses JSON output, and keeps usage data.
+export const createResponseWithUsage = async <T>(
   request: ResponsesRequest,
   apiKey: string,
-): Promise<T> => {
+): Promise<OpenAiResponse<T>> => {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -124,5 +164,17 @@ export const createResponse = async <T>(
   }
 
   // Callers supply strict JSON schemas, so a parse failure should be loud.
-  return JSON.parse(text) as T;
+  return {
+    data: JSON.parse(text) as T,
+    usage: json.usage,
+  };
+};
+
+// Sends a raw Responses API request and parses the JSON output.
+export const createResponse = async <T>(
+  request: ResponsesRequest,
+  apiKey: string,
+): Promise<T> => {
+  const response = await createResponseWithUsage<T>(request, apiKey);
+  return response.data;
 };

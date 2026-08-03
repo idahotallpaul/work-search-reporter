@@ -2,17 +2,70 @@ import path from "node:path";
 
 import dotenv from "dotenv";
 
-import { DEFAULT_OUTPUT_PATH } from "./config";
+import {
+  DEFAULT_ENRICH_MODEL,
+  DEFAULT_OPENAI_ENRICH_CONCURRENCY,
+  DEFAULT_OUTPUT_PATH,
+  LARGE_ENRICHMENT_RUN_ROW_COUNT,
+} from "./config";
 import { readRows, writeRowsWithBackup } from "./csv/csv";
 import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
+import type { OpenAiUsage } from "./openai/client";
 import { enrichEmployerRow } from "./openai/enrich";
+import {
+  estimateTokensFromCharacters,
+  printOpenAiUsageSummary,
+  writeOpenAiUsageLog,
+} from "./storage/openaiUsage";
 import type { EnrichedEmployer, WeekWindow, WorkSearchRow } from "./types";
 
 dotenv.config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
+type SavedField = {
+  label: string;
+  value: string;
+};
+
+type EnrichmentSummary = {
+  missingAddressFields: string[];
+  notes: string;
+  savedFields: SavedField[];
+};
+
+const reportedFields = [
+  ["employer_website", "Website"],
+  ["employer_contact", "Contact"],
+  ["mailing_address_line_1", "Address line 1"],
+  ["mailing_address_line_2", "Address line 2"],
+  ["city", "City"],
+  ["state", "State"],
+  ["zip", "ZIP"],
+  ["source_url", "Source URL"],
+] as const satisfies readonly (readonly [keyof WorkSearchRow, string])[];
+
+const addressFields = [
+  ["mailing_address_line_1", "Address line 1"],
+  ["city", "City"],
+  ["state", "State"],
+  ["zip", "ZIP"],
+] as const satisfies readonly (readonly [keyof WorkSearchRow, string])[];
+
+// Avoid repeat paid lookups for rows already marked as not findable.
+const hasNoReliableAddressNote = (row: WorkSearchRow): boolean => {
+  const notes = row.notes.toLowerCase();
+
+  return [
+    "no reliable address",
+    "no reliable employer mailing address",
+    "did not find a complete",
+    "no complete high-confidence mailing address",
+  ].some((phrase) => notes.includes(phrase));
+};
+
 // Triggers lookup only when a report-critical mailing address field is missing.
 const shouldEnrich = (row: WorkSearchRow): boolean => {
   if (!row.company.trim()) return false;
+  if (hasNoReliableAddressNote(row)) return false;
 
   return [row.mailing_address_line_1, row.city, row.state, row.zip].some(
     (value) => !value.trim(),
@@ -69,6 +122,83 @@ const applyEnrichment = (
     confidence: mergeConfidence(row.confidence, enrichment.confidence),
     notes,
   };
+};
+
+const summarizeEnrichment = (
+  before: WorkSearchRow,
+  after: WorkSearchRow,
+): EnrichmentSummary => {
+  const savedFields = reportedFields.flatMap(([key, label]): SavedField[] => {
+    const beforeValue = before[key].trim();
+    const afterValue = after[key].trim();
+
+    if (afterValue && afterValue !== beforeValue) {
+      return [{ label, value: afterValue }];
+    }
+
+    return [];
+  });
+  const missingAddressFields = addressFields.flatMap(
+    ([key, label]): string[] => {
+      return after[key].trim() ? [] : [label];
+    },
+  );
+  const notes =
+    after.notes.trim() && after.notes.trim() !== before.notes.trim()
+      ? after.notes.trim()
+      : "";
+
+  return {
+    missingAddressFields,
+    notes,
+    savedFields,
+  };
+};
+
+const printEnrichmentSummary = (
+  row: WorkSearchRow,
+  summary: EnrichmentSummary,
+): void => {
+  const label = `${row.company || "(missing company)"}${row.job_title ? ` - ${row.job_title}` : ""}`;
+
+  console.log(`Result: ${label}`);
+
+  if (summary.savedFields.length > 0) {
+    console.log("  Saved to CSV:");
+    for (const field of summary.savedFields) {
+      console.log(`  - ${field.label}: ${field.value}`);
+    }
+  } else {
+    console.log("  Saved to CSV: no new fields");
+  }
+
+  if (summary.missingAddressFields.length > 0) {
+    console.log(`  Still missing: ${summary.missingAddressFields.join(", ")}`);
+  } else {
+    console.log("  Still missing: none of the required address fields");
+  }
+
+  if (summary.notes) {
+    console.log(`  Notes: ${summary.notes}`);
+  }
+};
+
+// Estimates request size without writing row contents to the usage log.
+const approximateEnrichmentInputCharacters = (
+  rows: readonly WorkSearchRow[],
+): number => {
+  const staticPromptCharacters = 900;
+
+  return rows.reduce((total, row) => {
+    return (
+      total +
+      staticPromptCharacters +
+      row.company.length +
+      row.job_title.length +
+      row.employer_website.length +
+      row.source_url.length
+    );
+  }, 0);
 };
 
 // Runs async work over a list without launching every lookup at once.
@@ -131,18 +261,74 @@ const main = async (): Promise<void> => {
     return;
   }
 
+  const targetRows = targets.map(({ row }) => row);
+  const approximateInputCharacters =
+    approximateEnrichmentInputCharacters(targetRows);
+  const approximateInputTokens = estimateTokensFromCharacters(
+    approximateInputCharacters,
+  );
+
+  console.log("OpenAI enrichment preflight:");
+  console.log(`- Model: ${DEFAULT_ENRICH_MODEL}`);
   console.log(
-    `Fetching missing company data for ${targets.length} entr${targets.length === 1 ? "y" : "ies"} in ${activeWeek.claimWeekStart} through ${activeWeek.claimWeekEnd} with concurrency 2.`,
+    `- Missing-address rows: ${targets.length} in ${activeWeek.claimWeekStart} through ${activeWeek.claimWeekEnd}`,
+  );
+  console.log(`- Concurrency: ${DEFAULT_OPENAI_ENRICH_CONCURRENCY}`);
+  console.log(
+    `- Approximate input size: ${approximateInputCharacters} character(s), roughly ${approximateInputTokens} token(s)`,
+  );
+  console.log("- Companies:");
+  for (const { row } of targets) {
+    console.log(
+      `  - ${row.company}${row.job_title ? ` - ${row.job_title}` : ""}`,
+    );
+  }
+  if (targets.length > LARGE_ENRICHMENT_RUN_ROW_COUNT) {
+    console.log(
+      `- Warning: this is larger than the normal ${LARGE_ENRICHMENT_RUN_ROW_COUNT}-row threshold.`,
+    );
+  }
+
+  console.log(
+    `Fetching missing company data for ${targets.length} entr${targets.length === 1 ? "y" : "ies"}.`,
   );
 
   const updatedRows = [...rows];
-  await runWithConcurrency(targets, 2, async ({ row, index }) => {
-    console.log(
-      `Fetching company data: ${row.company || "(missing company)"} ${row.job_title ? `- ${row.job_title}` : ""}`,
-    );
-    const enrichment = await enrichEmployerRow(row, apiKey);
-    updatedRows[index] = applyEnrichment(row, enrichment);
+  const summaries: EnrichmentSummary[] = [];
+  const usages: OpenAiUsage[] = [];
+  await runWithConcurrency(
+    targets,
+    DEFAULT_OPENAI_ENRICH_CONCURRENCY,
+    async ({ row, index }) => {
+      console.log(
+        `Fetching company data: ${row.company || "(missing company)"} ${row.job_title ? `- ${row.job_title}` : ""}`,
+      );
+      const result = await enrichEmployerRow(row, apiKey);
+      const updatedRow = applyEnrichment(row, result.enrichment);
+      updatedRows[index] = updatedRow;
+
+      const summary = summarizeEnrichment(row, updatedRow);
+      summaries.push(summary);
+      if (result.usage) usages.push(result.usage);
+      printEnrichmentSummary(updatedRow, summary);
+    },
+  );
+
+  await writeOpenAiUsageLog({
+    approximateInputCharacters,
+    command: "enrich",
+    model: DEFAULT_ENRICH_MODEL,
+    rowCount: targets.length,
+    usages,
   });
+  printOpenAiUsageSummary(usages);
+
+  const rowsWithSavedData = summaries.filter((summary) => {
+    return summary.savedFields.length > 0;
+  }).length;
+  const rowsStillMissingAddress = summaries.filter((summary) => {
+    return summary.missingAddressFields.length > 0;
+  }).length;
 
   await writeRowsWithBackup(
     DEFAULT_OUTPUT_PATH,
@@ -152,6 +338,8 @@ const main = async (): Promise<void> => {
   console.log(
     `Updated ${targets.length} entr${targets.length === 1 ? "y" : "ies"} in ${DEFAULT_OUTPUT_PATH}.`,
   );
+  console.log(`Rows with newly saved data: ${rowsWithSavedData}.`);
+  console.log(`Rows still missing address data: ${rowsStillMissingAddress}.`);
 };
 
 main().catch((error) => {

@@ -317,6 +317,25 @@
       );
     };
 
+    const sortRowsOldestFirst = (rows) => {
+      // CSV dates are ISO yyyy-mm-dd strings, so normal string comparison sorts correctly.
+      return [...rows].sort((left, right) => {
+        const leftDate = Format.cellValue(left, "action_date");
+        const rightDate = Format.cellValue(right, "action_date");
+        if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+
+        const leftCompany = Format.cellValue(left, "company");
+        const rightCompany = Format.cellValue(right, "company");
+        if (leftCompany !== rightCompany) {
+          return leftCompany.localeCompare(rightCompany);
+        }
+
+        return Format.cellValue(left, "job_title").localeCompare(
+          Format.cellValue(right, "job_title"),
+        );
+      });
+    };
+
     // Store only parsed CSV rows in the browser for this portal origin.
     const getStoredRows = () => {
       const serializedRows = localStorage.getItem(Config.csvStorageKey);
@@ -324,7 +343,9 @@
 
       try {
         const rows = JSON.parse(serializedRows);
-        return Array.isArray(rows) ? rows.filter(isWorkSearchCsvRow) : [];
+        return Array.isArray(rows)
+          ? sortRowsOldestFirst(rows.filter(isWorkSearchCsvRow))
+          : [];
       } catch (_error) {
         return [];
       }
@@ -349,11 +370,13 @@
       // If week fields are absent, return all rows so the helper still works on
       // partially loaded pages or future portal markup.
       const claimWeek = getCurrentClaimWeek();
-      return getStoredRows().filter((row) => {
-        const actionDate = Format.cellValue(row, "action_date");
-        if (!claimWeek.start || !claimWeek.end) return true;
-        return actionDate >= claimWeek.start && actionDate <= claimWeek.end;
-      });
+      return sortRowsOldestFirst(
+        getStoredRows().filter((row) => {
+          const actionDate = Format.cellValue(row, "action_date");
+          if (!claimWeek.start || !claimWeek.end) return true;
+          return actionDate >= claimWeek.start && actionDate <= claimWeek.end;
+        }),
+      );
     };
 
     const getSelectedRow = (panel) => {
@@ -381,7 +404,9 @@
 
       reader.addEventListener("load", () => {
         const csvText = String(reader.result || "");
-        const rows = parseCsvRows(csvText).filter(isWorkSearchCsvRow);
+        const rows = sortRowsOldestFirst(
+          parseCsvRows(csvText).filter(isWorkSearchCsvRow),
+        );
         setStoredRows(rows);
         onAfterImport();
 

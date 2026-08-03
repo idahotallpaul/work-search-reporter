@@ -2,6 +2,32 @@ import { CANDIDATE_TERMS } from "../config";
 import { normalizeWhitespace, truncate } from "../text";
 import type { CandidateMessage, MailMessage } from "../types";
 
+const obviousNoiseTerms = [
+  "application status update",
+  "digest",
+  "invited you to apply",
+  "job alert",
+  "new jobs for you",
+  "newsletter",
+  "not moving forward",
+  "not selected",
+  "position has been closed",
+  "position has been filled",
+  "recommended jobs",
+  "rejection",
+  "we came across your profile",
+  "would you be interested",
+] as const;
+
+// Removes obvious non-confirmations before paid extraction runs.
+const isObviousNoise = (message: MailMessage): boolean => {
+  const haystack = normalizeWhitespace(
+    `${message.subject}\n${message.sender}\n${message.body}`,
+  ).toLowerCase();
+
+  return obviousNoiseTerms.some((term) => haystack.includes(term));
+};
+
 // Pulls a short body snippet around the matched application evidence.
 const findEvidenceExcerpt = (
   message: MailMessage,
@@ -59,7 +85,7 @@ export const findCandidateMessages = (
       haystack.includes(term.toLowerCase()),
     );
 
-    if (matchedTerms.length > 0) {
+    if (matchedTerms.length > 0 && !isObviousNoise(message)) {
       const evidenceExcerpt = findEvidenceExcerpt(message, matchedTerms);
 
       candidates.push({
