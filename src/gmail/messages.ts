@@ -60,24 +60,6 @@ const listMessageIds = async (
   return ids;
 };
 
-// Counts matches without downloading full message bodies.
-export const countGmailMessages = async (
-  week: WeekWindow,
-): Promise<{
-  count: number;
-  query: string;
-}> => {
-  const auth = await getGmailAuthClient();
-  const gmail = google.gmail({ version: "v1", auth });
-  const query = buildGmailQuery(week);
-  const ids = await listMessageIds(gmail, query);
-
-  return {
-    count: ids.length,
-    query,
-  };
-};
-
 // Reads one named Gmail header from a message payload.
 const header = (
   headers: gmail_v1.Schema$MessagePartHeader[],

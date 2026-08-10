@@ -10,16 +10,15 @@ Local TypeScript CLI for fetching Gmail application confirmation emails, importi
 pnpm start
 ```
 
-The interactive menu is the app entrypoint. It lets you change the active claim week, count matching emails, fetch application confirmation emails, fetch Jobright applied jobs, or fetch missing company data for the active week.
+The interactive menu is the app entrypoint. It lets you change the active claim week, fetch application confirmation emails, fetch Jobright applied jobs, or fetch missing company data for the active week.
 
 ```mermaid
 flowchart TD
   A["pnpm start"] --> B["Choose menu option"]
   B --> C["Change week"]
-  B --> D["Count matching emails"]
-  B --> E["Fetch application confirmation emails"]
-  B --> F["Fetch Jobright applied jobs"]
-  B --> G["Fetch missing company data"]
+  B --> D["Fetch application confirmation emails"]
+  B --> E["Fetch Jobright applied jobs"]
+  B --> F["Fetch missing company data"]
   C --> B
 ```
 
@@ -45,7 +44,6 @@ Start with `tampermonkey/idaho-weekly-certification-helper.user.js`. It currentl
 
 The Gmail API lets the app search and read email from the account you authorize. It is used by:
 
-- `Count matching emails`
 - `Fetch application confirmation emails`
 
 The first Gmail run needs a Google OAuth desktop-client JSON file at:
@@ -155,23 +153,11 @@ The app never logs into Idaho's portal and never submits anything.
 
 | Menu action | Gmail API | Jobright browser | OpenAI extraction | OpenAI web search | CSV read/write |
 |---|---:|---:|---:|---:|---:|
-| `Count matching emails` | yes | no | no | no | no |
 | `Fetch application confirmation emails` | yes | no | yes | no | add application confirmation emails |
 | `Fetch Jobright applied jobs` | no | yes | no | no | add new rows and review possible duplicates |
 | `Fetch missing company data` | no | no | no | yes | fill missing mailing addresses for active-week rows |
 
 ## Workflows
-
-### Count
-
-Use this to see how many Gmail messages match the broad application-related query for the active week. It does not fetch full email bodies and does not call OpenAI.
-
-```mermaid
-flowchart LR
-  A["Count matching emails"] --> B["Build claim-week Gmail query"]
-  B --> C["Gmail API: list matching message IDs"]
-  C --> D["Print matching count"]
-```
 
 ### Fetch Application Confirmation Emails
 
@@ -263,7 +249,6 @@ Interactive menu. No flags.
 Menu options:
 
 - `Change week`
-- `Count matching emails`
 - `Fetch application confirmation emails`
 - `Fetch Jobright applied jobs`
 - `Fetch missing company data`
@@ -271,7 +256,7 @@ Menu options:
 
 `Change week` displays the current selection in the menu, then opens an arrow-key submenu with the current week, last completed week, several previous weeks, a manual Sunday start-date entry, and a back option.
 
-The package still has internal `count`, `collect`, `jobright`, and `enrich` scripts because the menu uses them, but they are not intended as separate user-facing commands and do not take flags.
+The package still has internal `collect`, `jobright`, and `enrich` scripts because the menu uses them, but they are not intended as separate user-facing commands and do not take flags.
 
 ## Code Quality
 

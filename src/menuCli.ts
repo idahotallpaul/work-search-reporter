@@ -53,14 +53,6 @@ const actions: MenuAction[] = [
     setWeek: true,
   },
   {
-    id: "count",
-    label: "Count matching emails",
-    description:
-      "Show how many confirmation-like emails Gmail finds for the week.",
-    command: "src/countCli.ts",
-    usesWeek: true,
-  },
-  {
     id: "collect",
     label: "Fetch application confirmation emails",
     description: "Find confirmation emails and add them to the CSV.",
