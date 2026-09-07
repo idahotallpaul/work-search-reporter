@@ -55,6 +55,9 @@ export type OpenAiResponse<T> = {
   usage?: OpenAiUsage;
 };
 
+const MAX_OPENAI_ATTEMPTS = 3;
+const OPENAI_RETRY_BASE_DELAY_MS = 1_000;
+
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
@@ -133,19 +136,69 @@ const extractOutputText = (response: ResponsesApiResponse): string => {
   return chunks.join("");
 };
 
+const sleep = async (ms: number): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+const shouldRetryStatus = (status: number): boolean => {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+};
+
+const retryDelayMs = (attemptIndex: number): number => {
+  return OPENAI_RETRY_BASE_DELAY_MS * 2 ** attemptIndex;
+};
+
+const errorMessage = (error: unknown): string => {
+  return error instanceof Error ? error.message : String(error);
+};
+
+// Retries transient transport/API failures, but still returns final non-retryable
+// API responses so the caller can print OpenAI's structured error body.
+const fetchResponse = async (
+  request: ResponsesRequest,
+  apiKey: string,
+): Promise<Response> => {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < MAX_OPENAI_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (
+        response.ok ||
+        !shouldRetryStatus(response.status) ||
+        attempt === MAX_OPENAI_ATTEMPTS - 1
+      ) {
+        return response;
+      }
+
+      lastError = new Error(`OpenAI API returned ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_OPENAI_ATTEMPTS - 1) break;
+    }
+
+    await sleep(retryDelayMs(attempt));
+  }
+
+  throw new Error(
+    `OpenAI request failed after ${MAX_OPENAI_ATTEMPTS} attempts: ${errorMessage(lastError)}`,
+  );
+};
+
 // Sends a raw Responses API request, parses JSON output, and keeps usage data.
 export const createResponseWithUsage = async <T>(
   request: ResponsesRequest,
   apiKey: string,
 ): Promise<OpenAiResponse<T>> => {
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(request),
-  });
+  const response = await fetchResponse(request, apiKey);
 
   const rawJson: unknown = await response.json();
   const json = parseResponsesApiResponse(rawJson);

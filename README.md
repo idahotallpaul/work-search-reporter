@@ -228,6 +228,8 @@ flowchart LR
 
 Use this after review. It reads the CSV, finds active-week entries with missing report-critical address data, and uses OpenAI web search to fill mailing address fields. The OpenAI response can also fill website, contact, source URL, confidence, and notes when available, but missing website or contact fields alone do not trigger a lookup. It skips rows already marked as having no reliable address found and does not sweep older incomplete rows unless you change the active week first.
 
+OpenAI requests retry transient network, rate-limit, and server failures. If one company lookup still fails, the run reports that row at the end but continues processing the remaining rows. Successful enrichment changes are backed up and written to the CSV even when another row fails, so rerunning `Fetch missing company data` only needs to retry entries that are still missing report-critical address fields.
+
 ```mermaid
 flowchart TD
   A["Fetch missing company data"] --> B["Read CSV"]
@@ -235,9 +237,13 @@ flowchart TD
   C --> D["Skip rows already marked no reliable address"]
   D --> E["Print OpenAI preflight summary"]
   E --> F["OpenAI web search per company"]
-  F --> G["Print saved and still-missing fields"]
-  G --> H["Backup existing CSV"]
-  H --> I["Rewrite CSV with missing company data filled"]
+  F --> G{"Lookup succeeded?"}
+  G -->|Yes| H["Record CSV changes and still-missing fields"]
+  G -->|No| I["Record row-level failure for retry"]
+  H --> J["Backup existing CSV when rows changed"]
+  J --> K["Rewrite CSV with successful enrichment changes"]
+  I --> L["Print failed rows in final summary"]
+  K --> L
 ```
 
 ## Command

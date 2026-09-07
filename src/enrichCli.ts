@@ -32,6 +32,11 @@ type EnrichmentSummary = {
   savedFields: SavedField[];
 };
 
+type EnrichmentFailure = {
+  error: string;
+  row: WorkSearchRow;
+};
+
 const reportedFields = [
   ["employer_website", "Website"],
   ["employer_contact", "Contact"],
@@ -164,12 +169,12 @@ const printEnrichmentSummary = (
   console.log(`Result: ${label}`);
 
   if (summary.savedFields.length > 0) {
-    console.log("  Saved to CSV:");
+    console.log("  CSV changes:");
     for (const field of summary.savedFields) {
       console.log(`  - ${field.label}: ${field.value}`);
     }
   } else {
-    console.log("  Saved to CSV: no new fields");
+    console.log("  CSV changes: no new fields");
   }
 
   if (summary.missingAddressFields.length > 0) {
@@ -181,6 +186,20 @@ const printEnrichmentSummary = (
   if (summary.notes) {
     console.log(`  Notes: ${summary.notes}`);
   }
+};
+
+const rowLabel = (row: WorkSearchRow): string => {
+  return `${row.company || "(missing company)"}${row.job_title ? ` - ${row.job_title}` : ""}`;
+};
+
+const errorMessage = (error: unknown): string => {
+  return error instanceof Error ? error.message : String(error);
+};
+
+const printEnrichmentFailure = (failure: EnrichmentFailure): void => {
+  console.log(`Result: ${rowLabel(failure.row)}`);
+  console.log(`  Failed: ${failure.error}`);
+  console.log("  CSV changes: no changes for this row");
 };
 
 // Estimates request size without writing row contents to the usage log.
@@ -295,22 +314,29 @@ const main = async (): Promise<void> => {
 
   const updatedRows = [...rows];
   const summaries: EnrichmentSummary[] = [];
+  const failures: EnrichmentFailure[] = [];
   const usages: OpenAiUsage[] = [];
   await runWithConcurrency(
     targets,
     DEFAULT_OPENAI_ENRICH_CONCURRENCY,
     async ({ row, index }) => {
-      console.log(
-        `Fetching company data: ${row.company || "(missing company)"} ${row.job_title ? `- ${row.job_title}` : ""}`,
-      );
-      const result = await enrichEmployerRow(row, apiKey);
-      const updatedRow = applyEnrichment(row, result.enrichment);
-      updatedRows[index] = updatedRow;
+      console.log(`Fetching company data: ${rowLabel(row)}`);
+      try {
+        const result = await enrichEmployerRow(row, apiKey);
+        const updatedRow = applyEnrichment(row, result.enrichment);
+        updatedRows[index] = updatedRow;
 
-      const summary = summarizeEnrichment(row, updatedRow);
-      summaries.push(summary);
-      if (result.usage) usages.push(result.usage);
-      printEnrichmentSummary(updatedRow, summary);
+        const summary = summarizeEnrichment(row, updatedRow);
+        summaries.push(summary);
+        if (result.usage) usages.push(result.usage);
+        printEnrichmentSummary(updatedRow, summary);
+      } catch (error) {
+        // Keep one flaky web-search/API request from discarding other
+        // successful enrichment results collected during the same run.
+        const failure = { error: errorMessage(error), row };
+        failures.push(failure);
+        printEnrichmentFailure(failure);
+      }
     },
   );
 
@@ -326,20 +352,35 @@ const main = async (): Promise<void> => {
   const rowsWithSavedData = summaries.filter((summary) => {
     return summary.savedFields.length > 0;
   }).length;
-  const rowsStillMissingAddress = summaries.filter((summary) => {
+  const successfulRowsStillMissingAddress = summaries.filter((summary) => {
     return summary.missingAddressFields.length > 0;
   }).length;
+  const rowsWithChanges = summaries.filter((summary) => {
+    return summary.savedFields.length > 0 || summary.notes;
+  }).length;
+  const rowsStillMissingAddress =
+    successfulRowsStillMissingAddress + failures.length;
 
-  await writeRowsWithBackup(
-    DEFAULT_OUTPUT_PATH,
-    path.resolve(__dirname, "..", "backups"),
-    updatedRows,
-  );
+  if (rowsWithChanges > 0) {
+    await writeRowsWithBackup(
+      DEFAULT_OUTPUT_PATH,
+      path.resolve(__dirname, "..", "backups"),
+      updatedRows,
+    );
+  }
+
   console.log(
-    `Updated ${targets.length} entr${targets.length === 1 ? "y" : "ies"} in ${DEFAULT_OUTPUT_PATH}.`,
+    `Processed ${targets.length} entr${targets.length === 1 ? "y" : "ies"} for ${DEFAULT_OUTPUT_PATH}.`,
   );
   console.log(`Rows with newly saved data: ${rowsWithSavedData}.`);
   console.log(`Rows still missing address data: ${rowsStillMissingAddress}.`);
+  console.log(`Rows failed during enrichment: ${failures.length}.`);
+  if (failures.length > 0) {
+    console.log("Failed rows:");
+    for (const failure of failures) {
+      console.log(`  - ${rowLabel(failure.row)}: ${failure.error}`);
+    }
+  }
 };
 
 main().catch((error) => {
