@@ -210,9 +210,21 @@ const advanceAppliedListScroll = async (
   });
 };
 
+// Jobright lists applied jobs newest first. Newer out-of-week jobs can appear
+// before the selected week, so only an older-than-week row is a safe cutoff.
+const hasReachedOlderApplications = (
+  jobs: readonly RawJobrightAppliedJob[],
+  week: WeekWindow,
+): boolean => {
+  return jobs.some((job) => {
+    return parseJobrightAppliedDate(job.appliedDateText) < week.claimWeekStart;
+  });
+};
+
 // Scans virtualized/infinite Jobright cards by scraping each scroll position.
 const scrapeAllAppliedJobs = async (
   page: Page,
+  week: WeekWindow,
 ): Promise<RawJobrightAppliedJob[]> => {
   const jobMap = new Map<string, RawJobrightAppliedJob>();
   let previousStatus: AppliedScrollStatus | undefined;
@@ -226,6 +238,13 @@ const scrapeAllAppliedJobs = async (
     for (const job of visibleJobs) {
       const key = `${job.jobTitle}|${job.company}|${job.appliedDateText}`;
       jobMap.set(key, job);
+    }
+
+    if (hasReachedOlderApplications(visibleJobs, week)) {
+      console.log(
+        `Reached Jobright applications older than ${week.claimWeekStart}; stopping scan.`,
+      );
+      return [...jobMap.values()];
     }
 
     const status = await advanceAppliedListScroll(page);
@@ -292,7 +311,7 @@ export const collectJobrightAppliedJobs = async (
       );
     }
 
-    const rawJobs = await scrapeAllAppliedJobs(page);
+    const rawJobs = await scrapeAllAppliedJobs(page, week);
     const jobs = rawJobs.map((job) => ({
       ...job,
       appliedDate: parseJobrightAppliedDate(job.appliedDateText),

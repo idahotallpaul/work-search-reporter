@@ -127,7 +127,7 @@ It is used only by:
 
 On first use, the app opens a Chrome window to Jobright. Log in, open the Applied tab if needed, then press Enter in the terminal. The session is saved in `cache/jobright-browser` so later runs can reuse it. This profile is separate from your everyday Chrome profile.
 
-The Jobright import reads job title, company, applied date, and the best available Jobright URL. It filters those jobs to the active claim week, reconciles them with the existing CSV, automatically adds non-conflicting new rows, and asks you only how to handle possible duplicates before writing anything.
+The Jobright import reads job title, company, applied date, and the best available Jobright URL. Because Jobright lists applied jobs newest first, the import stops scanning once it reaches applications older than the active claim week, then filters the collected jobs to the active claim week. It reconciles those jobs with the existing CSV, automatically adds non-conflicting new rows, and asks you only how to handle possible duplicates before writing anything.
 
 ### What Leaves Your Machine
 
@@ -192,7 +192,8 @@ flowchart TD
   C -->|No| D["Log in and press Enter"]
   C -->|Yes| E["Scrape Applied tab"]
   D --> E
-  E --> F["Filter to active claim week"]
+  E --> N["Stop after older-than-week applications"]
+  N --> F["Filter to active claim week"]
   F --> G["Read existing CSV"]
   G --> H{"Match existing row?"}
   H -->|Exact or fillable| I["Fill blank fields only"]
