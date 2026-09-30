@@ -55,22 +55,9 @@ const addressFields = [
   ["zip", "ZIP"],
 ] as const satisfies readonly (readonly [keyof WorkSearchRow, string])[];
 
-// Avoid repeat paid lookups for rows already marked as not findable.
-const hasNoReliableAddressNote = (row: WorkSearchRow): boolean => {
-  const notes = row.notes.toLowerCase();
-
-  return [
-    "no reliable address",
-    "no reliable employer mailing address",
-    "did not find a complete",
-    "no complete high-confidence mailing address",
-  ].some((phrase) => notes.includes(phrase));
-};
-
 // Triggers lookup only when a report-critical mailing address field is missing.
 const shouldEnrich = (row: WorkSearchRow): boolean => {
   if (!row.company.trim()) return false;
-  if (hasNoReliableAddressNote(row)) return false;
 
   return [row.mailing_address_line_1, row.city, row.state, row.zip].some(
     (value) => !value.trim(),
@@ -215,6 +202,11 @@ const approximateEnrichmentInputCharacters = (
       row.company.length +
       row.job_title.length +
       row.employer_website.length +
+      row.mailing_address_line_1.length +
+      row.mailing_address_line_2.length +
+      row.city.length +
+      row.state.length +
+      row.zip.length +
       row.source_url.length
     );
   }, 0);

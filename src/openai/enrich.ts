@@ -13,7 +13,26 @@ export type EnrichEmployerRowResult = {
 
 type EnrichmentContext = {
   employerWebsite: string;
+  knownAddress: {
+    city: string;
+    line1: string;
+    line2: string;
+    state: string;
+    zip: string;
+  };
   sourceUrl: string;
+};
+
+const EMPTY_ENRICHMENT_CONTEXT: EnrichmentContext = {
+  employerWebsite: "",
+  knownAddress: {
+    city: "",
+    line1: "",
+    line2: "",
+    state: "",
+    zip: "",
+  },
+  sourceUrl: "",
 };
 
 const enrichmentSchema = {
@@ -49,7 +68,7 @@ const enrichmentSchema = {
 export const enrichEmployer = async (
   action: ExtractedAction,
   apiKey: string,
-  context: EnrichmentContext = { employerWebsite: "", sourceUrl: "" },
+  context: EnrichmentContext = EMPTY_ENRICHMENT_CONTEXT,
 ): Promise<EnrichEmployerRowResult> => {
   if (!action.company) {
     throw new Error(
@@ -64,8 +83,14 @@ export const enrichEmployer = async (
       input: [
         {
           role: "system",
-          content:
-            "Find employer contact details for a job-search report. Prefer the official employer website, careers page, or contact page. Do not use registered-agent addresses unless no better employer address is available. If uncertain, leave fields blank and explain in notes.",
+          content: [
+            "Find the best available employer mailing address for a government work-search report.",
+            "A usable complete mailing address is the primary goal; employer website and contact details are secondary.",
+            "Search broadly and return one best address. Prefer sources in this order: current official employer pages or filings; investor, press, or government records; the employer's verified LinkedIn or Google business listing; reputable business directories or databases; then a registered-agent or incorporation address as a last resort.",
+            "The address may be a headquarters, office, corporate mailing address, or registered address. It does not need to be the job's work location or an address that accepts applications.",
+            "Do not leave address fields blank merely because the employer does not publish a clearly designated mailing address or because credible sources conflict. Choose the most plausible current complete address, lower confidence appropriately, and explain the source type and uncertainty in notes.",
+            "Only leave an address field blank after web search finds no plausible value. Keep all returned address parts internally consistent and set source_url to the page that best supports the chosen address.",
+          ].join(" "),
         },
         {
           role: "user",
@@ -73,6 +98,7 @@ export const enrichEmployer = async (
             company: action.company,
             job_title: action.job_title,
             known_employer_website: context.employerWebsite,
+            known_partial_address: context.knownAddress,
             known_source_url: context.sourceUrl,
           }),
         },
@@ -118,6 +144,13 @@ export const enrichEmployerRow = async (
     apiKey,
     {
       employerWebsite: row.employer_website,
+      knownAddress: {
+        city: row.city,
+        line1: row.mailing_address_line_1,
+        line2: row.mailing_address_line_2,
+        state: row.state,
+        zip: row.zip,
+      },
       sourceUrl: row.source_url,
     },
   );

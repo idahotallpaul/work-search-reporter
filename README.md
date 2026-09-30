@@ -227,7 +227,9 @@ flowchart LR
 
 ### Fetch Missing Company Data
 
-Use this after review. It reads the CSV, finds active-week entries with missing report-critical address data, and uses OpenAI web search to fill mailing address fields. The OpenAI response can also fill website, contact, source URL, confidence, and notes when available, but missing website or contact fields alone do not trigger a lookup. It skips rows already marked as having no reliable address found and does not sweep older incomplete rows unless you change the active week first.
+Use this after review. It reads the CSV, finds active-week entries with missing report-critical address data, and uses OpenAI web search to fill mailing address fields. The OpenAI response can also fill website, contact, source URL, confidence, and notes when available, but missing website or contact fields alone do not trigger a lookup. Rows remain eligible for later runs until every required address field is populated, and older incomplete rows are not swept unless you change the active week first.
+
+Because a mailing address is required for the weekly filing, enrichment favors returning the best plausible complete business address over leaving fields blank. It prefers current official employer sources, then expands to government records, verified business profiles, and reputable third-party directories. A registered-agent or incorporation address may be used as a last resort. Lower-confidence or indirect addresses are identified in the notes and retain the supporting source URL, so review the result before filing when precision matters.
 
 OpenAI requests retry transient network, rate-limit, and server failures. If one company lookup still fails, the run reports that row at the end but continues processing the remaining rows. Successful enrichment changes are backed up and written to the CSV even when another row fails, so rerunning `Fetch missing company data` only needs to retry entries that are still missing report-critical address fields.
 
@@ -235,7 +237,7 @@ OpenAI requests retry transient network, rate-limit, and server failures. If one
 flowchart TD
   A["Fetch missing company data"] --> B["Read CSV"]
   B --> C["Find active-week entries with missing address data"]
-  C --> D["Skip rows already marked no reliable address"]
+  C --> D["Include every row still missing required address fields"]
   D --> E["Print OpenAI preflight summary"]
   E --> F["OpenAI web search per company"]
   F --> G{"Lookup succeeded?"}

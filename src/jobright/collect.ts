@@ -33,6 +33,7 @@ type RawJobrightAppliedJob = {
 };
 
 type AppliedPageStatus = {
+  authenticated: boolean;
   ready: boolean;
   snippet: string;
   title: string;
@@ -55,7 +56,9 @@ const waitForEnter = async (message: string): Promise<void> => {
   }
 };
 
-// Reads enough page state to decide whether Jobright has finished rendering.
+// Distinguishes a valid login from a fully rendered list. Jobright displays the
+// Applied tab and page title while its job-card request is still in flight, so
+// those signals alone must not allow scraping to begin.
 const getAppliedPageStatus = async (page: Page): Promise<AppliedPageStatus> => {
   return page.evaluate(() => {
     const text = document.body.innerText || "";
@@ -63,16 +66,20 @@ const getAppliedPageStatus = async (page: Page): Promise<AppliedPageStatus> => {
       location.hostname.includes("jobright.ai") &&
       location.pathname.includes("/jobs/applied");
     const hasAppliedTab = /Applied\s*\(?\d*\)?/.test(text);
+    const appliedCountMatch = /Applied\((\d+)\)/.exec(text);
+    const appliedCount = appliedCountMatch
+      ? Number(appliedCountMatch[1])
+      : undefined;
     const hasAppliedDate = /Applied on\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(
       text,
     );
+    const authenticated =
+      onAppliedRoute &&
+      (hasAppliedTab || document.title.includes("Applied Jobs"));
 
     return {
-      ready:
-        onAppliedRoute &&
-        (hasAppliedTab ||
-          hasAppliedDate ||
-          document.title.includes("Applied Jobs")),
+      authenticated,
+      ready: authenticated && (hasAppliedDate || appliedCount === 0),
       snippet: text.slice(0, 500).replace(/\s+/g, " ").trim(),
       title: document.title,
       url: location.href,
@@ -291,19 +298,21 @@ export const collectJobrightAppliedJobs = async (
     const page = context.pages()[0] || (await context.newPage());
     await page.goto(JOBRIGHT_APPLIED_URL, { waitUntil: "domcontentloaded" });
 
-    let status = await waitForAppliedPage(page, 10_000);
-    if (!status.ready) {
+    let status = await waitForAppliedPage(page, 15_000);
+    if (!status.authenticated) {
       await waitForEnter(
         "Log into Jobright in the opened browser, go to the Applied tab, then press Enter here.",
       );
       await page.goto(JOBRIGHT_APPLIED_URL, { waitUntil: "domcontentloaded" });
-      status = await waitForAppliedPage(page, 15_000);
+      status = await waitForAppliedPage(page, 30_000);
     }
 
     if (!status.ready) {
       throw new Error(
         [
-          "Jobright Applied tab was not visible after login.",
+          status.authenticated
+            ? "Jobright is logged in, but the Applied jobs list did not finish loading."
+            : "Jobright Applied tab was not visible after login.",
           `Current page: ${status.url}`,
           `Title: ${status.title || "(none)"}`,
           `Page text: ${status.snippet || "(empty)"}`,
