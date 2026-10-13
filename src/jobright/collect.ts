@@ -1,7 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { stdin as input, stdout as output } from "node:process";
-import { createInterface } from "node:readline/promises";
 
 import { chromium, type Page } from "playwright-core";
 
@@ -34,11 +32,14 @@ type RawJobrightAppliedJob = {
 
 type AppliedPageStatus = {
   authenticated: boolean;
+  loggedOut: boolean;
   ready: boolean;
   snippet: string;
   title: string;
   url: string;
 };
+
+const LOGIN_TIMEOUT_MS = 3 * 60 * 1000;
 
 type AppliedScrollStatus = {
   scrollHeight: number;
@@ -46,26 +47,38 @@ type AppliedScrollStatus = {
   targetCount: number;
 };
 
-// Waits for the user to finish login in the browser window.
-const waitForEnter = async (message: string): Promise<void> => {
-  const rl = createInterface({ input, output });
+// True for Jobright pages. OAuth windows such as accounts.google.com stay outside
+// this check so an in-progress sign-in is not interrupted.
+const isJobrightHost = (url: string): boolean => {
   try {
-    await rl.question(message);
-  } finally {
-    rl.close();
+    const hostname = new URL(url).hostname;
+    return hostname === "jobright.ai" || hostname.endsWith(".jobright.ai");
+  } catch {
+    return false;
   }
 };
 
-// Distinguishes a valid login from a fully rendered list. Jobright displays the
-// Applied tab and page title while its job-card request is still in flight, so
-// those signals alone must not allow scraping to begin.
+// Distinguishes a signed-out homepage, a valid login, and a fully rendered list.
+// Jobright displays the Applied tab and page title while its job-card request is
+// still in flight, so those signals alone must not allow scraping to begin.
 const getAppliedPageStatus = async (page: Page): Promise<AppliedPageStatus> => {
   return page.evaluate(() => {
-    const text = document.body.innerText || "";
+    const text = document.body?.innerText || "";
+    const hostname = location.hostname;
+    const onJobright =
+      hostname === "jobright.ai" || hostname.endsWith(".jobright.ai");
     const onAppliedRoute =
-      location.hostname.includes("jobright.ai") &&
-      location.pathname.includes("/jobs/applied");
-    const hasAppliedTab = /Applied\s*\(?\d*\)?/.test(text);
+      onJobright && location.pathname.includes("/jobs/applied");
+    const onMarketingHome = onJobright && location.pathname === "/";
+    const buttonLabels = [...document.querySelectorAll("button")].map(
+      (button) => (button.textContent || "").replace(/\s+/g, " ").trim(),
+    );
+    const hasSignInButton = buttonLabels.includes("SIGN IN");
+    const hasLoginForm = Boolean(
+      document.querySelector("#basic_email, #basic_password"),
+    );
+    const loggedOut =
+      onJobright && (hasSignInButton || hasLoginForm || onMarketingHome);
     const appliedCountMatch = /Applied\((\d+)\)/.exec(text);
     const appliedCount = appliedCountMatch
       ? Number(appliedCountMatch[1])
@@ -75,16 +88,36 @@ const getAppliedPageStatus = async (page: Page): Promise<AppliedPageStatus> => {
     );
     const authenticated =
       onAppliedRoute &&
-      (hasAppliedTab || document.title.includes("Applied Jobs"));
+      !loggedOut &&
+      (appliedCount !== undefined || document.title.includes("Applied Jobs"));
 
     return {
       authenticated,
+      loggedOut,
       ready: authenticated && (hasAppliedDate || appliedCount === 0),
       snippet: text.slice(0, 500).replace(/\s+/g, " ").trim(),
       title: document.title,
       url: location.href,
     };
   });
+};
+
+// Opens the homepage sign-in dialog. The user still completes Google, Apple, or
+// email sign-in themselves; this only reveals that form.
+const openSignInDialog = async (page: Page): Promise<boolean> => {
+  const emailField = page.locator("#basic_email");
+  if (await emailField.isVisible().catch(() => false)) return true;
+
+  try {
+    await page
+      .getByRole("button", { name: "SIGN IN", exact: true })
+      .first()
+      .click({ timeout: 8_000 });
+    await emailField.waitFor({ state: "visible", timeout: 8_000 });
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 // Waits for Jobright's client-rendered Applied tab content.
@@ -95,8 +128,19 @@ const waitForAppliedPage = async (
   const startedAt = Date.now();
   let status = await getAppliedPageStatus(page);
 
-  while (!status.ready && Date.now() - startedAt < timeoutMs) {
+  while (
+    !status.ready &&
+    !status.loggedOut &&
+    Date.now() - startedAt < timeoutMs
+  ) {
     await page.waitForTimeout(500);
+    status = await getAppliedPageStatus(page);
+  }
+
+  // A signed-out visit can paint the Applied title for a moment before Jobright
+  // redirects home. Confirm the list is still present before scraping.
+  if (status.ready) {
+    await page.waitForTimeout(750);
     status = await getAppliedPageStatus(page);
   }
 
@@ -279,6 +323,78 @@ const scrapeAllAppliedJobs = async (
   return [...jobMap.values()];
 };
 
+// Describes the page captured when Jobright auth or loading fails.
+const describeAppliedPage = (status: AppliedPageStatus): string => {
+  return [
+    `Current page: ${status.url}`,
+    `Title: ${status.title || "(none)"}`,
+    `Page text: ${status.snippet || "(empty)"}`,
+  ].join("\n");
+};
+
+// Opens sign-in when the saved browser profile is logged out, then waits until
+// the Applied tab is ready. Sign-in itself stays in the browser window.
+const ensureSignedInAppliedPage = async (
+  page: Page,
+): Promise<AppliedPageStatus> => {
+  const startedAt = Date.now();
+  let announced = false;
+  let lastOpenAttempt = 0;
+
+  while (Date.now() - startedAt < LOGIN_TIMEOUT_MS) {
+    const status = await getAppliedPageStatus(page);
+    if (status.ready) {
+      await page.waitForTimeout(750);
+      const confirmed = await getAppliedPageStatus(page);
+      if (confirmed.ready) return confirmed;
+    } else if (!isJobrightHost(status.url)) {
+      if (!announced) {
+        announced = true;
+        console.log(
+          "Complete Jobright sign-in in the browser window. Scraping continues after the Applied tab loads.",
+        );
+      }
+    } else if (status.loggedOut) {
+      const dialogOpen = await page
+        .locator("#basic_email")
+        .isVisible()
+        .catch(() => false);
+      if (!dialogOpen && Date.now() - lastOpenAttempt > 3_000) {
+        lastOpenAttempt = Date.now();
+        const opened = await openSignInDialog(page);
+        if (!announced) {
+          announced = true;
+          console.log(
+            opened
+              ? "Jobright is not signed in. Complete sign-in in the browser window. Scraping continues after the Applied tab loads."
+              : "Jobright is not signed in. Use SIGN IN in the browser window. Scraping continues after the Applied tab loads.",
+          );
+        }
+      } else if (!announced) {
+        announced = true;
+        console.log(
+          "Jobright is not signed in. Complete sign-in in the browser window. Scraping continues after the Applied tab loads.",
+        );
+      }
+    } else if (!status.authenticated) {
+      // Stay on the Applied route while it renders. Only leave other Jobright
+      // pages, such as the post-login recommendations screen.
+      if (!status.url.includes("/jobs/applied")) {
+        await page.goto(JOBRIGHT_APPLIED_URL, {
+          waitUntil: "domcontentloaded",
+        });
+      }
+    } else {
+      const loaded = await waitForAppliedPage(page, 15_000);
+      if (loaded.ready) return loaded;
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  return getAppliedPageStatus(page);
+};
+
 // Reads Jobright Applied jobs from the dedicated browser profile.
 export const collectJobrightAppliedJobs = async (
   week: WeekWindow,
@@ -298,26 +414,18 @@ export const collectJobrightAppliedJobs = async (
     const page = context.pages()[0] || (await context.newPage());
     await page.goto(JOBRIGHT_APPLIED_URL, { waitUntil: "domcontentloaded" });
 
-    let status = await waitForAppliedPage(page, 15_000);
-    if (!status.authenticated) {
-      await waitForEnter(
-        "Log into Jobright in the opened browser, go to the Applied tab, then press Enter here.",
-      );
-      await page.goto(JOBRIGHT_APPLIED_URL, { waitUntil: "domcontentloaded" });
-      status = await waitForAppliedPage(page, 30_000);
+    let status = await waitForAppliedPage(page, 12_000);
+    if (!status.ready) {
+      status = await ensureSignedInAppliedPage(page);
     }
 
     if (!status.ready) {
-      throw new Error(
-        [
-          status.authenticated
-            ? "Jobright is logged in, but the Applied jobs list did not finish loading."
-            : "Jobright Applied tab was not visible after login.",
-          `Current page: ${status.url}`,
-          `Title: ${status.title || "(none)"}`,
-          `Page text: ${status.snippet || "(empty)"}`,
-        ].join("\n"),
-      );
+      const reason = status.loggedOut
+        ? "Jobright sign-in was not completed."
+        : status.authenticated
+          ? "Jobright is logged in, but the Applied jobs list did not finish loading."
+          : "Jobright Applied tab was not visible after login.";
+      throw new Error([reason, describeAppliedPage(status)].join("\n"));
     }
 
     const rawJobs = await scrapeAllAppliedJobs(page, week);

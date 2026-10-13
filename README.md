@@ -125,7 +125,7 @@ It is used only by:
 
 - `Fetch Jobright applied jobs`
 
-On first use, the app opens a Chrome window to Jobright. Log in, open the Applied tab if needed, then press Enter in the terminal. The session is saved in `cache/jobright-browser` so later runs can reuse it. This profile is separate from your everyday Chrome profile.
+On first use, or when the saved session has expired, the app opens a Chrome window to Jobright. A signed-out session is redirected to the marketing homepage. The app detects that state, opens the sign-in dialog, and waits while you sign in with Google, Apple, or email. It continues automatically once the Applied tab loads. The session is saved in `cache/jobright-browser` so later runs can reuse it. This profile is separate from your everyday Chrome profile.
 
 The Jobright import reads job title, company, applied date, and the best available Jobright URL. Because Jobright lists applied jobs newest first, the import stops scanning once it reaches applications older than the active claim week, then filters the collected jobs to the active claim week. It reconciles those jobs with the existing CSV, automatically adds non-conflicting new rows, and asks you only how to handle possible duplicates before writing anything.
 
@@ -189,7 +189,7 @@ If you use both Gmail and Jobright for the same claim week, run `Fetch applicati
 flowchart TD
   A["Fetch Jobright applied jobs"] --> B["Open dedicated Chrome profile"]
   B --> C{"Already logged into Jobright?"}
-  C -->|No| D["Log in and press Enter"]
+  C -->|No| D["Open sign-in dialog and wait for login"]
   C -->|Yes| E["Scrape Applied tab"]
   D --> E
   E --> N["Stop after older-than-week applications"]
