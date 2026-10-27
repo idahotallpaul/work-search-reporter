@@ -15,7 +15,12 @@ const normalizeSourceDate = (value: string): string => {
 };
 
 // Builds the source identity that an email-derived row will write to the CSV.
-export const candidateSourceRowKey = (candidate: CandidateMessage): string => {
+export const candidateSourceRowKey = (
+  candidate: Pick<
+    CandidateMessage,
+    "subject" | "sender" | "dateReceived" | "dateSent"
+  >,
+): string => {
   return normalizeForKey(
     `${candidate.subject}|${candidate.sender}|${normalizeSourceDate(
       candidate.dateReceived || candidate.dateSent,
@@ -77,35 +82,4 @@ export const toWorkSearchRow = (
     confidence: combinedConfidence.toFixed(2),
     notes,
   };
-};
-
-// Builds the duplicate key used across existing and newly collected rows.
-export const rowDedupeKey = (row: WorkSearchRow): string => {
-  // Source email identity is preferred because company/title can be edited.
-  const sourceKey = rowSourceKey(row);
-  if (sourceKey) return sourceKey;
-
-  return normalizeForKey(
-    `${row.claim_week_start}|${row.action_date}|${row.company}|${row.job_title}|${row.action_type}`,
-  );
-};
-
-// Keeps only rows not already present in the CSV or this collection run.
-export const filterNewRows = (
-  existingRows: readonly WorkSearchRow[],
-  candidateRows: readonly WorkSearchRow[],
-): WorkSearchRow[] => {
-  const existingKeys = new Set(existingRows.map(rowDedupeKey));
-  const seenThisRun = new Set<string>();
-  const newRows: WorkSearchRow[] = [];
-
-  for (const row of candidateRows) {
-    const key = rowDedupeKey(row);
-    if (!existingKeys.has(key) && !seenThisRun.has(key)) {
-      seenThisRun.add(key);
-      newRows.push(row);
-    }
-  }
-
-  return newRows;
 };

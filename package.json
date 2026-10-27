@@ -11,6 +11,7 @@
     "enrich": "ts-node --project tsconfig.json src/enrichCli.ts",
     "jobright": "ts-node --project tsconfig.json src/jobrightCli.ts",
     "start": "ts-node --project tsconfig.json src/menuCli.ts",
+    "test": "node --test --require ts-node/register src/mail/reconcile.test.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "engines": {

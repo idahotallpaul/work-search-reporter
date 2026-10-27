@@ -165,6 +165,10 @@ Use this to find application confirmation emails and add them to the CSV. It doe
 
 After local obvious-noise filtering and OpenAI extraction succeed, the app records processed email metadata locally. Future runs compare that cache with the current CSV before OpenAI: email-derived rows that still exist are skipped, manually deleted rows can be rebuilt, and emails previously rejected as non-confirmations stay skipped.
 
+ZipRecruiter platform receipts are reconciled with employer confirmations for the same date and normalized company/title. A missing title can be filled only when that company/date has one identifiable role; conflicting titles remain separate. Existing non-empty fields are preserved, and merged receipts are noted on the retained row. The metadata cache links both emails to that row so repeat runs skip both, while deleting the retained row allows reprocessing. Existing duplicate platform receipts in the selected week are also consolidated, with a CSV backup before writing. NDA/signature requests and other later hiring steps are excluded from new application extraction.
+
+Run `pnpm test` for the email-reconciliation regression tests and `pnpm check` for formatting, lint, and TypeScript checks.
+
 ```mermaid
 flowchart TD
   A["Fetch application confirmation emails"] --> B["Gmail API: list and fetch candidate messages"]

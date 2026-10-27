@@ -20,6 +20,7 @@ type ProcessedEmailRecord = {
   claim_week_start: string;
   claim_week_end: string;
   extraction_result?: ProcessedEmailOutcome;
+  represented_by_source_key?: string;
   processed_at: string;
 };
 
@@ -59,6 +60,8 @@ const isProcessedEmailRecord = (
     (extractionResult === undefined ||
       extractionResult === "no_action" ||
       extractionResult === "row_written") &&
+    (value.represented_by_source_key === undefined ||
+      typeof value.represented_by_source_key === "string") &&
     typeof value.processed_at === "string"
   );
 };
@@ -117,8 +120,40 @@ export const filterUnprocessedCandidates = (
     if (!processedRecord) return true;
     if (processedRecord.extraction_result === "no_action") return false;
 
-    return !currentCsvSourceKeys.has(candidateSourceRowKey(candidate));
+    return !currentCsvSourceKeys.has(
+      processedRecord.represented_by_source_key ||
+        candidateSourceRowKey(candidate),
+    );
   });
+};
+
+// A platform email may share a retained employer row. Track that relationship
+// using source metadata only; deleting the retained row still permits a retest.
+export const linkProcessedEmailSources = (
+  cache: ProcessedEmailCache,
+  aliases: ReadonlyMap<string, string>,
+): ProcessedEmailCache => {
+  return {
+    ...cache,
+    emails: cache.emails.map((email) => {
+      let source =
+        email.represented_by_source_key ||
+        candidateSourceRowKey({
+          subject: email.subject,
+          sender: email.sender,
+          dateReceived: email.date_received,
+          dateSent: email.date_sent,
+        });
+      const seen = new Set<string>();
+      while (aliases.has(source) && !seen.has(source)) {
+        seen.add(source);
+        source = aliases.get(source) ?? source;
+      }
+      return seen.size > 0
+        ? { ...email, represented_by_source_key: source }
+        : email;
+    }),
+  };
 };
 
 const toProcessedEmailRecord = (
@@ -148,6 +183,7 @@ export const writeProcessedEmailCache = async (
   candidates: readonly CandidateMessage[],
   week: WeekWindow,
   outcomes: ReadonlyMap<string, ProcessedEmailOutcome> = new Map(),
+  sourceAliases: ReadonlyMap<string, string> = new Map(),
 ): Promise<void> => {
   const processedAt = new Date().toISOString();
   const recordsByKey = new Map(
@@ -170,7 +206,7 @@ export const writeProcessedEmailCache = async (
   });
   await fs.writeFile(
     DEFAULT_PROCESSED_EMAIL_CACHE_PATH,
-    `${JSON.stringify({ version: 1, emails: [...recordsByKey.values()] }, null, 2)}\n`,
+    `${JSON.stringify(linkProcessedEmailSources({ version: 1, emails: [...recordsByKey.values()] }, sourceAliases), null, 2)}\n`,
     {
       encoding: "utf8",
       mode: 0o600,

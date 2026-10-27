@@ -8,12 +8,13 @@ import {
   DEFAULT_OUTPUT_PATH,
   LARGE_EXTRACTION_RUN_EMAIL_COUNT,
 } from "./config";
-import { appendRowsWithBackup, readRows } from "./csv/csv";
+import { readRows, writeRowsWithBackup } from "./csv/csv";
 import { getLastCompletedSundayWeek, getWeekFromStart } from "./dates";
 import { collectGmailMessages } from "./gmail/messages";
 import { findCandidateMessages } from "./mail/candidates";
+import { reconcileEmailRows } from "./mail/reconcile";
 import { candidateSourceId, extractActions } from "./openai/extract";
-import { filterNewRows, rowSourceKey, toWorkSearchRow } from "./rows";
+import { rowSourceKey, toWorkSearchRow } from "./rows";
 import {
   estimateTokensFromCharacters,
   printOpenAiUsageSummary,
@@ -21,6 +22,7 @@ import {
 } from "./storage/openaiUsage";
 import {
   filterUnprocessedCandidates,
+  linkProcessedEmailSources,
   type ProcessedEmailOutcome,
   processedEmailKey,
   readProcessedEmailCache,
@@ -101,8 +103,13 @@ const main = async (): Promise<void> => {
     );
   }
 
-  const processedEmailCache = await readProcessedEmailCache();
-  const existingRows = await readRows(DEFAULT_OUTPUT_PATH);
+  const originalRows = await readRows(DEFAULT_OUTPUT_PATH);
+  const cleanup = reconcileEmailRows(originalRows, [], week);
+  const existingRows = cleanup.rows;
+  const processedEmailCache = linkProcessedEmailSources(
+    await readProcessedEmailCache(),
+    cleanup.sourceAliases,
+  );
   const existingSourceKeys = new Set(
     existingRows.map(rowSourceKey).filter((key) => key !== ""),
   );
@@ -120,6 +127,17 @@ const main = async (): Promise<void> => {
   );
 
   if (unprocessedCandidates.length === 0) {
+    if (cleanup.merged > 0) {
+      await writeRowsWithBackup(
+        DEFAULT_OUTPUT_PATH,
+        path.resolve(__dirname, "..", "backups"),
+        existingRows,
+      );
+      await writeProcessedEmailCache(processedEmailCache, [], week);
+      console.log(
+        `Merged ${cleanup.merged} duplicate ZipRecruiter confirmation(s) into existing application rows.`,
+      );
+    }
     console.log("No new candidate emails to send to OpenAI.");
     return;
   }
@@ -178,35 +196,32 @@ const main = async (): Promise<void> => {
     }
   }
 
-  // Preserve manual CSV edits by reading the current file before appending.
-  const newRows = filterNewRows(existingRows, rows);
-
-  if (newRows.length === 0) {
-    console.log("No new application confirmation emails found.");
-    // Cache processed candidates even when OpenAI rejects them all.
-    await writeProcessedEmailCache(
-      processedEmailCache,
-      unprocessedCandidates,
-      week,
-      processedOutcomes,
+  // Extraction can take time. Re-read before reconciling so a concurrent manual
+  // CSV edit is included in the backed-up rewrite, not replaced by an old copy.
+  const result = reconcileEmailRows(
+    await readRows(DEFAULT_OUTPUT_PATH),
+    rows,
+    week,
+  );
+  const merged = result.merged;
+  if (result.added > 0 || merged > 0) {
+    await writeRowsWithBackup(
+      DEFAULT_OUTPUT_PATH,
+      path.resolve(__dirname, "..", "backups"),
+      result.rows,
     );
-    return;
   }
-
-  await appendRowsWithBackup(
-    DEFAULT_OUTPUT_PATH,
-    path.resolve(__dirname, "..", "backups"),
-    newRows,
-  );
   console.log(
-    `Added ${newRows.length} application confirmation(s) to ${DEFAULT_OUTPUT_PATH}.`,
+    `Added ${result.added} application confirmation(s) to ${DEFAULT_OUTPUT_PATH}.`,
   );
+  console.log(`Merged ${merged} duplicate ZipRecruiter confirmation(s).`);
   // Cache after successful CSV work so an interrupted run can be retried.
   await writeProcessedEmailCache(
     processedEmailCache,
     unprocessedCandidates,
     week,
     processedOutcomes,
+    result.sourceAliases,
   );
 };
 

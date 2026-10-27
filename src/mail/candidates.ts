@@ -25,7 +25,12 @@ const isObviousNoise = (message: MailMessage): boolean => {
     `${message.subject}\n${message.sender}\n${message.body}`,
   ).toLowerCase();
 
-  return obviousNoiseTerms.some((term) => haystack.includes(term));
+  // NDA requests can quote a thank-you for applying, but record a later hiring
+  // step rather than a new submission. Match the subject, not body boilerplate.
+  return (
+    /\b(nda|non[- ]disclosure agreement)\b/i.test(message.subject) ||
+    obviousNoiseTerms.some((term) => haystack.includes(term))
+  );
 };
 
 // Pulls a short body snippet around the matched application evidence.
