@@ -1,8 +1,20 @@
 # Work Search Reporter
 
-Local TypeScript CLI for fetching Gmail application confirmation emails, importing Jobright applied jobs, filling missing company data, and maintaining one Idaho work-search CSV:
+A TypeScript toolkit that automates my weekly Idaho work-search reporting, from finding the jobs I applied to through filling in the state's certification forms.
 
-`/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/outputs/idaho_work_search_log.csv`
+Each week I have to report job applications with the employer, job title, date, and a mailing address for each one. Gathering that by hand from email and job boards was slow, so this project handles it in three stages:
+
+1. **Collect.** An interactive CLI pulls application confirmations from Gmail (read-only API access). OpenAI decides which emails are real applications and extracts the company, title, and date as structured fields. The CLI also imports applied jobs from Jobright's Applied tab through Playwright, using a dedicated browser session. Everything goes into one running CSV log of every job I've applied to.
+2. **Enrich.** After I review the CSV and remove anything I don't want to report, the CLI uses OpenAI web search to fill in missing employer mailing addresses. It records the source URL, a confidence level, and notes for each lookup.
+3. **File.** A Tampermonkey userscript imports the CSV on the state's weekly certification site, lets me choose which jobs to report that week, and fills in every step of the form: work availability, income, work-search actions, and the final acknowledgements. I review each page and submit it myself. The script never clicks Next or Submit.
+
+### Highlights
+
+- Reconciles duplicates across Gmail confirmations, ZipRecruiter receipts, and Jobright without overwriting manual edits, and asks only when a match is ambiguous.
+- Caches processed emails and logs OpenAI token usage, so repeat runs skip finished work and costs stay visible. Email bodies and prompts are never stored.
+- Sends each external service only the data it needs. Credentials, tokens, and the CSV stay local.
+- Retries temporary API failures and keeps going when a single lookup fails.
+- Uses Biome for formatting and linting, TypeScript type checks, and regression tests for the email reconciliation logic.
 
 ## Quick Start
 
@@ -48,7 +60,7 @@ The Gmail API lets the app search and read email from the account you authorize.
 
 The first Gmail run needs a Google OAuth desktop-client JSON file at:
 
-`/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/google-oauth-client.json`
+`/work-search-reporter/google-oauth-client.json`
 
 To set it up:
 
@@ -119,7 +131,7 @@ Useful OpenAI docs:
 
 The Jobright import reads the Applied tab through Playwright and a dedicated local Chrome profile stored at:
 
-`/Users/paulterhaar/PROJECTS/jobhunt-26/work-search-reporter/cache/jobright-browser`
+`/work-search-reporter/cache/jobright-browser`
 
 It is used only by:
 
